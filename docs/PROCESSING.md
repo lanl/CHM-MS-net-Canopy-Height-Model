@@ -145,6 +145,7 @@ This ensemble of neural network was originally designed by Javier Santos to simu
 large 2D/3D arrays. Therefore, it has been modified to be applicable to predicting CHMS.
 
 
+
 **Unique features:**
 - Optimizes computational resources as it performs at different resolutions/scales 
 - Coarser resolutions focus on high-level and global patterns, requiring more filters
