@@ -66,7 +66,7 @@ This specifies CUDA 11.8 (as indicated by cu118). However, you must adjust this 
 
 To find the correct command for your setup:
 
-🔥 Visit [PyTorch Get Started Locally](https://pytorch.org/get-started/locally/)
+Visit [PyTorch Get Started Locally](https://pytorch.org/get-started/locally/)
 
 <br>
 
