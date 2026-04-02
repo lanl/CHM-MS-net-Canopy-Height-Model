@@ -157,6 +157,7 @@ def main():
                     raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.") 
                 
                 # Now starting to process the non-DigitalGlobe satellite data
+                print(style.BOLD + "\n-----PROCESSING BEGINS (THIS TAKES A WHILE)----\n" + style.RESET)
                 print("Making directories based on metadata...\n")
                 #manageDirectories.setup_dirs(raw_directory= PATHS["satellite_directory"], csv_file=PATHS["dg_csv_path"], site=site)  
                 
@@ -240,7 +241,7 @@ def main():
             print("\nMaking directories based on metadata...\n")
             manageDirectories.setup_dirs(raw_directory= PATHS["satellite_directory"], csv_file=PATHS["dg_csv_path"], site=site)
             folders_in_nonDG = [f for f in os.listdir(satellite_imagery_download_directory) if f != ".DS_Store"]
-    
+            print(style.BOLD + "\n-----PROCESSING BEGINS (THIS TAKES A WHILE)----\n" + style.RESET)
             for folder in folders_in_nonDG: # folder (e.g. caldor_2012-03-19_wv02_05090939090)
                 parts = folder.split("_") 
                 main_folder = parts[0] # main_folder = caldor
@@ -249,7 +250,7 @@ def main():
                 dst_main_folder = os.path.join(PATHS["satellite_directory"], main_folder) 
                 # main folder is being created
                 os.makedirs(dst_main_folder, exist_ok=True)
-                # ZACH I want to make sure that it can unzip folders and detect GEOtiffs put them in the correct folder, this will have to change if you update to no CELL with DG"
+        
                 # If .zip files and GeoTIFF files were found in those unzipped folders, then proceed to process the data
                 if tif_found==True and zip_found==True:
                         if os.path.isdir(src_path) and not os.path.exists(dst_subfolder):
