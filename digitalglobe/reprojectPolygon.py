@@ -36,7 +36,7 @@ def reproject_shapefile(shp_file_path):
     # Pulled from the .env 
     dotenv_path = find_dotenv()
     load_dotenv(dotenv_path)
-    project_directory=os.getenv('project_path')
+    project_directory=os.getenv('project_dir')
     utm = os.getenv('utm')
     site = os.getenv('site')
 
