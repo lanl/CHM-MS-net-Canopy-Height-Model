@@ -98,7 +98,7 @@ site=caldor
 utm=EPSG:32610
 dem_path=/Users/mia/Documents/caldor_dem.tif
 lidar_path=/Users/mia/Documents/caldor_lidar.tif
-site_shapefile_dir=/Users/mia/Downloads/wgs84_caldor
+site_shapefile_path=/Users/mia/Downloads/wgs84_caldor
 satellite_download_dir=/Users/mia/Downloads/satellite_data
 ```
 Document the appropriate paths and directories in the <strong><span style="color:#33484D">.env</span></strong> before running the program.
