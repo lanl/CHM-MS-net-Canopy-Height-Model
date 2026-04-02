@@ -44,13 +44,7 @@ This project is developed and tested with **Python 3.12**. It may work with othe
 
 ### Creating your environment
 ```
-conda create -n chmerenv python=3.12 
-conda install gdal rasterio fiona geopandas shapely -c conda-forge
-
-conda activate chmerenv
-
-# Install others using the requirements.txt in your environment
-pip install -r requirements.txt
+pip install -r satchmenv.txt
 ```
 ### Install Pytorch
 ```
@@ -64,9 +58,7 @@ This specifies CUDA 11.8 (as indicated by cu118). However, you must adjust this 
 
 - Your operating system and Python version
 
-To find the correct command for your setup:
-
-Visit [PyTorch Get Started Locally](https://pytorch.org/get-started/locally/)
+Download from [PyTorch Get Started Locally](https://pytorch.org/get-started/locally/)
 
 <br>
 
@@ -84,8 +76,8 @@ Create a .env file where the repo is located. Edit the file in a text editor.
 | project_dir  | the project directory for the products of preprocessing, the neural network & post-processing  |
 | site  | the name of the site you are processing |
 | utm  | the Universal Transversal Mercator EPSG code (i.e. EPSG:32610)   |
-| dem_path | the path to the DEM GeoTIFF of the site  |
-| lidar_path | the path to the lidar-produced CHM GeoTIFF within the site  |
+| dem_path | the path to the DEM GeoTIFF of the site (ends in .tif or .tiff) |
+| lidar_path | the path to the lidar-produced CHM GeoTIFF within the site (ends in .tif or .tiff)  |
 | site_shapefile_dir | the path to the directory to the shapefile of the site   |
 | satellite_download_dir| the path to the directory that holds the satellite GeoTIFFs   |
 
