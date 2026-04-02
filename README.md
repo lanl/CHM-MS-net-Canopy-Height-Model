@@ -58,11 +58,7 @@ This specifies CUDA 11.8 (as indicated by cu118). However, you must adjust this 
 
 - Your operating system and Python version
 
-Download from [PyTorch Get Started Locally](https://pytorch.org/get-started/locally/)
-
-<br>
-
-**There, you can select your preferences (OS, package manager, Python version, and CUDA version), and it will generate the exact install command you need.**
+Download from [PyTorch Get Started Locally](https://pytorch.org/get-started/locally/). **There, you can select your preferences (OS, package manager, Python version, and CUDA version), and it will generate the exact install command you need.**
 
 
 
@@ -85,13 +81,14 @@ Create a .env file where the repo is located. Edit the file in a text editor.
 ```
 UW PICO 5.09                                    File: .env                                       
 
-project_path=/Users/mia/Documents/Projects/caldor_run
+project_path=/mnt/c/Users/mia/Documents/caldor_run
 site=caldor
 utm=EPSG:32610
-dem_path=/Users/mia/Documents/caldor_dem.tif
-lidar_path=/Users/mia/Documents/caldor_lidar.tif
-site_shapefile_path=/Users/mia/Downloads/wgs84_caldor
-satellite_download_dir=/Users/mia/Downloads/satellite_data
+dem_path=/mnt/c/Users/mia/Documents/LANLCHM/caldor_dem.tif
+lidar_path=/mnt/c/Users/mia/Documents/LANLCHM/caldorchm.tif
+site_shapefile_path=/mnt/c/Users/mia/Documents/LANLCHM/wgs84_caldor
+satellite_download_dir=/mnt/c/Users/mia/Documents/LANLCHM/satellite_data
+
 ```
 Document the appropriate paths and directories in the <strong><span style="color:#33484D">.env</span></strong> before running the program.
 
@@ -100,31 +97,42 @@ If you are using Maxar's DigitalGlobe to accquire your satellite imagery, then W
 
 ## Running Main
 
-After creating the .env, running the program:
+After creating the .env, run main.
+```
+python main.py
+```
+
 
 ```
-CHMer... 🌳
+SatCHM... 🌳
 
-Project Directory: /Users/mia/Documents/Projects/caldor_run
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-Confirming shapefile(.shp) is in provided directory...
+Project Directory: /mnt/c/Users/mia/Documents/caldor_run
 
-Using shapefile "caldor_wgs84.shp" in /Users/mia/Downloads/wgs84_caldor
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-----SHAPEFILE SELECTION-----
+
+Using shapefile "caldor_wgs84.shp" in /mnt/c/Users/mia/Documents/wgs84_caldor
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-----PROCESSING INPUT DATA-----
 
 Processing the satellite imagery...
 
 Open this .CSV file for documenting angle metadata. Please keep this open as you proceed:
 
-         C:/Users/mia/Documents/caldor_run/metadata/angle-metadata.csv
+         /mnt/c/Users/mia/Documents/caldor_run/metadata/angle-metadata.csv
 
 
 Are you using DigitalGlobe? (Y/N):
 
-
 ```
 <br>
 
-If you are using DigitalGlobe, answer Y and follow the documentation [here](./docs/DIGITALGLOBE.md). If you are using your own imagery, answer N and follow the documentation [here](./docs/OWNIMAGERY.md)
+If you are using Vantor Imagery, answer Y and follow the documentation [here](./docs/DIGITALGLOBE.md). If you are using your own imagery, answer N and follow the documentation [here](./docs/OWNIMAGERY.md)
 
 ---
 
