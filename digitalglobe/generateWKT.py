@@ -36,7 +36,7 @@ def creating_geoinfo(projected_shapefile_path, printt = True):
     # Pulled from the .env 
     dotenv_path = find_dotenv()
     load_dotenv(dotenv_path)
-    project_directory=os.getenv('project_path')
+    project_directory=os.getenv('project_dir')
     fire_polygons = os.path.join(project_directory, 'site-polygons')
     utm = os.getenv('utm')
     site = os.getenv('site')
