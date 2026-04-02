@@ -32,7 +32,7 @@ def start():
     # Uses ls -a to see .env in commandline
     dotenv_path = find_dotenv()
     load_dotenv(dotenv_path)
-    directory=os.getenv('project_path')
+    directory=os.getenv('project_dir')
 
     w, h = shutil.get_terminal_size()
     print("-" * w)
