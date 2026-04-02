@@ -36,7 +36,7 @@ from tools.calculate_bounds import calculating_wvimg_bounds
 from tools.tif_qaqc import unzip_and_remove, delete_non_tif, tif_qaqc, has_tif_files
 
 def main():
-    print(style.FOREST + "CHMer... 🌳" + style.RESET + "\n") 
+    print(style.FOREST + "SatCHM... 🌳" + style.RESET + "\n") 
     # This prompts the start.py script (creates angle-metadata.csv, other directories)
     PATHS = start.start()
 
