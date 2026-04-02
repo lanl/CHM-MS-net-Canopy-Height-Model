@@ -47,7 +47,7 @@ def tif_qaqc(folder_path):
     else:
         pass
     #filename_pbar.write(f"Greater than 95%: {l}")
-    filename_pbar.write(f"Files removed with significant bad data: {k} files")
+    filename_pbar.write(f"\nFiles removed with significant bad data: {k} files\n")
 
 def unzip_and_remove(zip_filename):
     """

@@ -36,7 +36,7 @@ from tools.calculate_bounds import calculating_wvimg_bounds
 from tools.tif_qaqc import unzip_and_remove, delete_non_tif, tif_qaqc, has_tif_files
 
 def main():
-    print(style.FOREST + "SatCHM... 🌳" + style.RESET + "\n") 
+    print("\n" + style.FOREST + "SatCHM... 🌳" + style.RESET + "\n") 
     # This prompts the start.py script (creates angle-metadata.csv, other directories)
     PATHS = start.start()
 
@@ -46,6 +46,7 @@ def main():
     site_shapefile_path=os.getenv('site_shapefile_path')
     site=os.getenv('site')
     dem_path = os.getenv("dem_path")
+    w, h = shutil.get_terminal_size()
     
     if not dem_path.endswith(".tif"):
         raise RuntimeError(f"dem path must end with .tif: {dem_path}")
@@ -54,7 +55,9 @@ def main():
     satellite_imagery_download_directory = os.getenv('satellite_imagery_download_path')
     
     # If site_shapefile_path is blank, then a RuntimeError is raised
-    print("\nConfirming shapefile(.shp) is in provided directory...\n")
+    print("-" * w)
+    #print("\nConfirming shapefile(.shp) is in provided directory...\n")
+    print(style.BOLD + "\n-----SHAPEFILE SELECTION-----\n" + style.RESET)
     if site_shapefile_path == '':
         raise RuntimeError(".env file must contain a value for \"site_shapefile_path\"") 
     
@@ -76,6 +79,8 @@ def main():
 
     ######################################### SATELLITE DATA ########################################
     # If satellite (wvimg) inputs are detected, it will proceed to DEM data
+    print("-" * w)
+    print(style.BOLD + "\n-----PROCESSING INPUT DATA-----\n" + style.RESET)
     if os.path.isdir(os.path.join(PATHS["inputs"], "wvimg")) and has_tif_files(os.path.join(PATHS["inputs"], "wvimg")):
         print("Satellite data detected in inputs folder... ✅ \n")
     else:
@@ -232,7 +237,7 @@ def main():
                 raise RuntimeError(f"GeoTIFF files are not found in the {satellite_imagery_download_directory}. Please unpack your data here and rerun the program.")
             
             ## Checking if GeoTIFF data is correctly placed in the satellite_imagery_download_directory
-            print("Making directories based on metadata...\n")
+            print("\nMaking directories based on metadata...\n")
             manageDirectories.setup_dirs(raw_directory= PATHS["satellite_directory"], csv_file=PATHS["dg_csv_path"], site=site)
             folders_in_nonDG = [f for f in os.listdir(satellite_imagery_download_directory) if f != ".DS_Store"]
     
@@ -283,7 +288,7 @@ def main():
     if os.path.isdir(os.path.join(PATHS["inputs"], "dem")) and has_tif_files(os.path.join(PATHS["inputs"], "dem")):
         print("DEM data detected in inputs folder... ✅ \n")
     else:
-        print(style.FOREST + "Processing the dem data..." + style.RESET ) 
+        print("\n" + style.FOREST + "Processing the dem data..." + style.RESET + "\n") 
         # This script bounding boxes of the shapefiles (if bounding boxes need to be divided into smaller cells, not print statements though)
         generateforDG.creating_geoinfo(output_shp_path, printt=False)
         
@@ -312,7 +317,7 @@ def main():
     ################################## LIDAR (CHM) DATA #####################################
     # If CHM inputs are detected, it will proceed to solar/sensor data
     if os.path.isdir(os.path.join(PATHS["inputs"], "chm")) and has_tif_files(os.path.join(PATHS["inputs"], "chm")):
-        print("LiDAR (chm) data detected in inputs folder... ✅ \n")
+        print("Lidar (chm) data detected in inputs folder... ✅ \n")
     else:
         print(style.FOREST + "Processing the lidar data...." + style.RESET)
         # This script bounding boxes of the shapefiles (if bounding boxes need to be divided into smaller cells, not print statements though)
@@ -344,17 +349,19 @@ def main():
         
     #################################### SENSOR & SOLAR DATA ##################################
     # If sensor/solar inputs are detected, it will proceed to DATA QAQC
-    print(style.FOREST + "Processing solar and sensor data...." + style.RESET)
     if os.path.isdir(os.path.join(PATHS["inputs"], "solar")) and has_tif_files(os.path.join(PATHS["inputs"], "solar")) and os.path.isdir(os.path.join(PATHS["inputs"], "sensor")) and has_tif_files(os.path.join(PATHS["inputs"], "sensor")) :
         print("Solar and sensor data detected in inputs folder... ✅ \n")
     else:
         # This processes off-nadir angle, target azimuth, solar elevation, solar azimuth from the angle metadata
+        print("\n" + style.FOREST + "Processing solar and sensor data...." + style.RESET + "\n")
         solar_input, sensor_input = createAnglearrays.SensorSolarAngles(output_directory=PATHS["inputs"], path_to_csv=PATHS["dg_csv_path"])
         PATHS["inputs_solar"] = solar_input
         PATHS["input_sensor"] = sensor_input
     #################################### DATA QAQC #############################################
     # Data QAQC happens every time regardless if it has happened before
-    print(style.FOREST + "Checking if all CHM data inputs are complete (QAQC)...\n" + style.RESET)
+    print("-" * w)
+    print(style.BOLD + "\n-----QAQC-----\n" + style.RESET)
+    print(style.FOREST + "Checking if all data inputs are satisfactory..." + style.RESET) 
     
     # Checks if CHM data, specifically contains alot of NAN values or 0s
     tif_qaqc(os.path.join(PATHS["inputs"], "chm"))
@@ -369,6 +376,8 @@ def main():
 
     #################################### CALCULATE BOUNDS #######################################
     # If bounds are already created, then this will be skipped
+    print("-" * w)
+    print(style.BOLD + "\n-----PROCESSING INPUT METADATA-----\n" + style.RESET)
     output_bounds_json = os.path.join(PATHS["inputs"], "bounds.json")
     if os.path.exists(output_bounds_json):
         print("Bounds are already saved...✅ \n")
@@ -392,7 +401,8 @@ def main():
     # If lists are already named, then this will be skipped. 
     if os.path.exists(os.path.join(PATHS["inputs"], f"{site}_train.txt")) and os.path.exists(os.path.join(PATHS["inputs"], f"{site}_val.txt")) and os.path.exists(os.path.join(PATHS["inputs"], f"{site}_test.txt")):
         print("Training, testing, and validation lists are already made... ✅ \n")
-        response_list = input("Would you like to make new training, testing, and validation lists? (Y/N):")
+        print("-" * w)
+        response_list = input("\nWould you like to make new training, testing, and validation lists? (Y/N):")
         # You may rewrite lists
         if response_list.upper() == "Y":
             print(style.FOREST + "Rewriting the training, testing, and validation lists..." + style.RESET)
@@ -408,6 +418,7 @@ def main():
 
     ######################################################################################################
     # Neural network is initiated
+    print("-" * w)
     print(style.PURPLE + "\nInitiating the neural network...\n" + style.RESET)
     
     print("\nTraining is in progress...")

@@ -23,4 +23,6 @@ class style():
     FOREST = '\033[92m'
     PURPLE = '\033[95m'
     RESET = '\033[0m'
+  
+
 

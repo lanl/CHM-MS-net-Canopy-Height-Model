@@ -10,6 +10,7 @@ This script sets up starting directories and the satellite angle metadata for pr
 
 import os
 from dotenv import load_dotenv, find_dotenv
+import shutil
 from tools.styles import style
 
 def start():
@@ -32,7 +33,12 @@ def start():
     dotenv_path = find_dotenv()
     load_dotenv(dotenv_path)
     directory=os.getenv('project_path')
-    print(style.BOLD + "Project Directory:" + style.RESET, directory)
+
+    w, h = shutil.get_terminal_size()
+    print("-" * w)
+    print("\n" + style.BOLD + "Project Directory:" + style.RESET, directory + "\n")
+   
+
     os.makedirs(directory, exist_ok=True)
     site=os.getenv('site')
 
