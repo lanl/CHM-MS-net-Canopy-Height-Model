@@ -43,7 +43,7 @@ def main():
     # Obtaining information (site, utm, dem_path, lidar_path, satellite_imagery_download_directory and site_shapefile_path) from the .env file
     dotenv_path = find_dotenv()
     load_dotenv(dotenv_path)
-    site_shapefile_path=os.getenv('site_shapefile_path')
+    site_shapefile_path=os.getenv('site_shapefile_dir')
     site=os.getenv('site')
     dem_path = os.getenv("dem_path")
     w, h = shutil.get_terminal_size()
@@ -52,7 +52,7 @@ def main():
         raise RuntimeError(f"dem path must end with .tif: {dem_path}")
 
     lidar_path = os.getenv("lidar_path")
-    satellite_imagery_download_directory = os.getenv('satellite_imagery_download_path')
+    satellite_imagery_download_directory = os.getenv('satellite_download_dir')
     
     # If site_shapefile_path is blank, then a RuntimeError is raised
     print("-" * w)
@@ -120,7 +120,7 @@ def main():
                 # Directions for unpacking your data into your satellite_imagery_download_directory
                 print("\nPlease see the documentation for more specific instructions using HTTPs download.\n")
 
-                input("\nUnpack your data into this directory:" +  "\n\n\t" + satellite_imagery_download_directory + "\n\nPress ENTER when complete:")
+                input("\nUnpack your data into this directory:" +  "\n\n\t" + f"{satellite_imagery_download_directory}" + "\n\nPress ENTER when complete:")
                 # ZACH I want to make sure that it can unzip folders and detect GEOtiffs put them in the correct folder, this will have to change if you update to no CELL with DG"
                 # Checking if GeoTIFF data is correctly placed in the satellite_imagery_download_directory
                 zip_folders = []
