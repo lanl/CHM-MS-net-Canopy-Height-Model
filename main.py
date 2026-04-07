@@ -53,6 +53,7 @@ def main():
 
     lidar_path = os.getenv("lidar_path")
     satellite_imagery_download_directory = os.getenv('satellite_download_dir')
+    angle_metadata = os.getenv("angle_metadata")
     
     # If site_shapefile_path is blank, then a RuntimeError is raised
     print("-" * w)
@@ -89,24 +90,17 @@ def main():
         # Creating a new satellite data directory in ms-data
         PATHS["satellite_directory"] = os.path.join(PATHS["new_project"], 'satellite-data')
         os.makedirs(PATHS["satellite_directory"], exist_ok=True)
-        print(style.RED + style.UNDERLINE + "Open this .CSV file for documenting angle metadata. Please keep this open as you proceed:" + style.RESET + "\n\n\t", PATHS["dg_csv_path"] + "\n")
-        
+
         # If satellite_imagery_download_directory in .env is blank, then a RuntimeError is raised
         if satellite_imagery_download_directory == '':
             raise RuntimeError(".env file must contain a value for satellite_imagery_download_directory") 
-    
-        # Prompting user if they are using DigitalGlobe 
-        response = input("\nAre you using DigitalGlobe? (Y/N):\n")
         
-        if response.upper() == "Y":
-            # Directions for DigitalGlobe
-            print("You selected DigitalGlobe.")
-            print("1. Ensure that you have a DigitalGlobe account set up and are able to download data.")
-            print("2. Use the WKT bounding box file to download imagery from DigitalGlobe for area of interest (AOI).")
-            print("3. See documentation (docs/DIGITALGLOBE.md) for more specific instructions about naming conventions and downloading imagery.\n\n")
-            print("Now generating the WKT (Well-Known Text Script) to input into DigitalGlobe...\n") 
-
-            # This script bounding boxes of the shapefiles transforms them into lat/log WKTs.
+         # If satellite_imagery_download_directory in .env is blank, then a RuntimeError is raised
+        if angle_metadata== '':
+            raise RuntimeError(".env file must contain a value for angle_metadata") 
+    
+    
+       
             generateforDG.creating_geoinfo(output_shp_path, printt=True)
             
             response_DG = input("Has it been 24 hours and/or you received confirmation that your imagery order has been fufilled? (Y/N):")
