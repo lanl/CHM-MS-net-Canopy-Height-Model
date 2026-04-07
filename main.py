@@ -37,28 +37,32 @@ from tools.tif_qaqc import unzip_and_remove, delete_non_tif, tif_qaqc, has_tif_f
 
 def main():
     print("\n" + style.FOREST + "SatCHM... 🌳" + style.RESET + "\n") 
-    # This prompts the start.py script (creates angle-metadata.csv, other directories)
     PATHS = start.start()
-
-    # Obtaining information (site, utm, dem_path, lidar_path, satellite_imagery_download_directory and site_shapefile_path) from the .env file
+    
+    # Terminal stylings
+    w, h = shutil.get_terminal_size()
+    # Obtaining information (site, utm, dem_path, lidar_path, satellite_imagery_download_directory, angle_metadata and site_shapefile_path) from the .env file
     dotenv_path = find_dotenv()
     load_dotenv(dotenv_path)
-    site_shapefile_path=os.getenv('site_shapefile_dir')
     site=os.getenv('site')
+
+    # If dem_path or lidar_path has wrong extension, then RuntimeError is raised
     dem_path = os.getenv("dem_path")
-    w, h = shutil.get_terminal_size()
-    
-    if not dem_path.endswith(".tif"):
+    if not dem_path.lower().endswith((".tif", ".tiff")):
         raise RuntimeError(f"dem path must end with .tif: {dem_path}")
 
     lidar_path = os.getenv("lidar_path")
+    if not lidar_path.lower().endswith((".tif", ".tiff")):
+        raise RuntimeError(f"lidar path must end with .tif: {lidar_path}")
+    
     satellite_imagery_download_directory = os.getenv('satellite_download_dir')
     angle_metadata = os.getenv("angle_metadata")
     
-    # If site_shapefile_path is blank, then a RuntimeError is raised
+    # If site_shapefile_path is blank, then a RuntimeError is raised 
+    
     print("-" * w)
-    #print("\nConfirming shapefile(.shp) is in provided directory...\n")
     print(style.BOLD + "\n-----SHAPEFILE SELECTION-----\n" + style.RESET)
+       site_shapefile_path=os.getenv('site_shapefile_dir')
     if site_shapefile_path == '':
         raise RuntimeError(".env file must contain a value for \"site_shapefile_path\"") 
     
@@ -72,8 +76,7 @@ def main():
     if shapefile_name is None:
         raise RuntimeError(f"No shapefile (.shp extension) found in {site_shapefile_path}")
 
-    # This script (reprojectPolygon.py) reprojects the shp file into UTM and saves the metadata about the site's bounding box into a csv
-    # print(f"Reprojecting the polygon shapefile {shapefile_name} to {utm}...\n")                    
+    # This script (reprojectPolygon.py) reprojects the shp file into UTM and saves the metadata about the site's bounding box into a csv                  
     output_shp_path, output_csv_path = reprojpoly.reproject_shapefile(shapefile_path)
     PATHS["site-metadata"] = output_csv_path
     PATHS["projected-shapefile"] = output_shp_path
@@ -95,7 +98,6 @@ def main():
         if satellite_imagery_download_directory == '':
             raise RuntimeError(".env file must contain a value for satellite_imagery_download_directory") 
         
-
         # Checking angle_metadata
          # If angle_metadata in .env is blank, then a RuntimeError is raised
         if angle_metadata== '':
@@ -144,54 +146,47 @@ def main():
         if not tif_found:
             raise RuntimeError(f"GeoTIFF files are not found in the {satellite_imagery_download_directory}. Please unpack your data here and rerun the program.")
             
-            ## Checking if GeoTIFF data is correctly placed in the satellite_imagery_download_directory
-            print("\nMaking directories based on metadata...\n")
-            manageDirectories.setup_dirs(raw_directory= PATHS["satellite_directory"], csv_file=angle_metadata, site=site)
-            folders_in_nonDG = [f for f in os.listdir(satellite_imagery_download_directory) if f != ".DS_Store"]
+        ## Checking if GeoTIFF data is correctly placed in the satellite_imagery_download_directory
+        print("\nMaking directories based on metadata...\n")
+        manageDirectories.setup_dirs(raw_directory= PATHS["satellite_directory"], csv_file=angle_metadata, site=site)
+        folders_in_nonDG = [f for f in os.listdir(satellite_imagery_download_directory) if f != ".DS_Store"]
 
-            print(style.BOLD + "\n-----PROCESSING BEGINS (THIS TAKES A WHILE)----\n" + style.RESET)
-            for folder in folders_in_nonDG: # folder (e.g. caldor_2012-03-19_wv02_05090939090)
-                parts = folder.split("_") 
-                main_folder = parts[0] # main_folder = caldor
+        print(style.BOLD + "\n-----PROCESSING BEGINS (THIS TAKES A WHILE)----\n" + style.RESET)
+        for folder in folders_in_nonDG: # folder (e.g. caldor_2012-03-19_wv02_05090939090)
+            parts = folder.split("_") 
+            main_folder = parts[0] # main_folder = caldor
 
-                src_path = os.path.join(satellite_imagery_download_directory, folder) # source path from satellite_imagery_download_directory
-                dst_main_folder = os.path.join(PATHS["satellite_directory"], main_folder) 
-                # main folder is being created
-                os.makedirs(dst_main_folder, exist_ok=True)
-        
-                # If .zip files and GeoTIFF files were found in those unzipped folders, then proceed to process the data
-                if tif_found==True and zip_found==True:
-                        if os.path.isdir(src_path) and not os.path.exists(dst_subfolder):
-                            shutil.copytree(src_path, dst_subfolder)
-
-                # If .zip files weren't found but GeoTIFF files, then proceed to process the data TODO
-                if tif_found==True and zip_found==False:
-                    for subfolder in os.listdir(src_path): # go over each subfolder inside
-                        src_subfolder = os.path.join(src_path, subfolder)
-                        dst_subfolder = os.path.join(dst_main_folder, subfolder)
-                        if os.path.isdir(src_subfolder) and not os.path.exists(dst_subfolder):
-                            shutil.copytree(src_subfolder, dst_subfolder)
-                else:
+            src_path = os.path.join(satellite_imagery_download_directory, folder) # source path from satellite_imagery_download_directory
+            dst_main_folder = os.path.join(PATHS["satellite_directory"], main_folder) 
+            # main folder is being created
+            os.makedirs(dst_main_folder, exist_ok=True)
+    
+            # If .zip files and GeoTIFF files were found in those unzipped folders, then proceed to process the data
+            if tif_found==True and zip_found==True:
                     if os.path.isdir(src_path) and not os.path.exists(dst_subfolder):
-                            shutil.copytree(src_path, dst_subfolder)
+                        shutil.copytree(src_path, dst_subfolder)
+
+            # If .zip files weren't found but GeoTIFF files, then proceed to process the data TODO
+            if tif_found==True and zip_found==False:
+                for subfolder in os.listdir(src_path): # go over each subfolder inside
+                    src_subfolder = os.path.join(src_path, subfolder)
+                    dst_subfolder = os.path.join(dst_main_folder, subfolder)
+                    if os.path.isdir(src_subfolder) and not os.path.exists(dst_subfolder):
+                        shutil.copytree(src_subfolder, dst_subfolder)
+            else:
+                if os.path.isdir(src_path) and not os.path.exists(dst_subfolder):
+                        shutil.copytree(src_path, dst_subfolder)
+
+        # Tiling in 2020 x 2020       
+        projected_data_directory = projectSatelliteImagery.projectSatelliteImagery(raw_directory=PATHS["satellite_directory"], angle_metadata=PATHS["dg_csv_path"], site_metadata=PATHS["site-metadata"])
+        print("\nNow, making the satellite inputs for the neural network...\n")
+        PATHS["inputs_wvimg"] = os.path.join(PATHS["inputs"], "wvimg")
+        os.makedirs(PATHS["inputs_wvimg"], exist_ok=True)
+        # Tiling in 512 x 512
+        prepareCRSForestData.PrepareForestData(input_directory=PATHS["projected_satellite_data"], output_directory=PATHS["inputs_wvimg"], path_to_shapefile=PATHS["projected-shapefile"])
 
 
-            # Checking if metadata table is filled out correctly
-            digitalglobe_metadata = pd.read_csv(PATHS["dg_csv_path"])
-            digitalglobe_metadata = digitalglobe_metadata.drop(digitalglobe_metadata.index)
-            #digitalglobe_metadata = digitalglobe_metadata.drop(['id', 'sensor'], axis=1)
-            if digitalglobe_metadata.isnull().values.any(): 
-                raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.") 
-
-            # Tiling in 2020 x 2020       
-            projected_data_directory = projectSatelliteImagery.projectSatelliteImagery(raw_directory=PATHS["satellite_directory"], angle_metadata=PATHS["dg_csv_path"], site_metadata=PATHS["site-metadata"])
-            print("\nNow, making the satellite inputs for the neural network...\n")
-            PATHS["inputs_wvimg"] = os.path.join(PATHS["inputs"], "wvimg")
-            os.makedirs(PATHS["inputs_wvimg"], exist_ok=True)
-            # Tiling in 512 x 512
-            prepareCRSForestData.PrepareForestData(input_directory=PATHS["projected_satellite_data"], output_directory=PATHS["inputs_wvimg"], path_to_shapefile=PATHS["projected-shapefile"])
-        else:
-            raise RuntimeError("Invalid response. Please enter 'Y' or 'N'.")
+    
     ###################################### DEM DATA ##########################################
     # If DEM inputs are detected, it will proceed to CHM data
     if os.path.isdir(os.path.join(PATHS["inputs"], "dem")) and has_tif_files(os.path.join(PATHS["inputs"], "dem")):
