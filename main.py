@@ -95,146 +95,60 @@ def main():
         if satellite_imagery_download_directory == '':
             raise RuntimeError(".env file must contain a value for satellite_imagery_download_directory") 
         
-         # If satellite_imagery_download_directory in .env is blank, then a RuntimeError is raised
+
+        # Checking angle_metadata
+         # If angle_metadata in .env is blank, then a RuntimeError is raised
         if angle_metadata== '':
             raise RuntimeError(".env file must contain a value for angle_metadata") 
-    
-    
-       
-            generateforDG.creating_geoinfo(output_shp_path, printt=True)
-            
-            response_DG = input("Has it been 24 hours and/or you received confirmation that your imagery order has been fufilled? (Y/N):")
-            if response_DG.upper() == "Y":
-                digitalglobe_metadata = pd.read_csv(PATHS["dg_csv_path"])
-                digitalglobe_metadata_no_header = pd.read_csv(PATHS["dg_csv_path"], header=0)
-                # If metadata is not complete, then it will raise a RuntimeError
-                if digitalglobe_metadata_no_header.shape[0] == 0: 
-                    raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.") 
-                  
-                # Directions for unpacking your data into your satellite_imagery_download_directory
-                print("\nPlease see the documentation for more specific instructions using HTTPs download.\n")
 
-                input("\nUnpack your data into this directory:" +  "\n\n\t" + f"{satellite_imagery_download_directory}" + "\n\nPress ENTER when complete:")
-                # ZACH I want to make sure that it can unzip folders and detect GEOtiffs put them in the correct folder, this will have to change if you update to no CELL with DG"
-                # Checking if GeoTIFF data is correctly placed in the satellite_imagery_download_directory
-                zip_folders = []
-                # First checks if files are .zip files
-                zip_found = False
-                try:
-                    for root, _, files in os.walk(satellite_imagery_download_directory):
-                            if any(file.lower().endswith('.zip') for file in files):
-                                print(".zip files have been found.")
-                                zip_found = True
-                                break # closes loop
-                            for file in files:
-                                if file.endswith('.zip'):
-                                    zip_folders.append(os.path.join(root, file))
-                    for folder in zip_folders:
-                        unzip_and_remove(folder)
-                except:
-                    print("Since .zip files not found, now looking for GeoTIFFS.")
-                    pass
+        # If angle_metadata has incomplete fields, then a RuntimeError is raised    
+        satellite_metadata = pd.read_csv(angle_metadata)
+        satellite_metadata_no_header = pd.read_csv(angle_metadata), header=0)
+        if satellite_metadata_no_header.shape[0] == 0: 
+            raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.") 
 
-                # Second checks if GeoTIFF files exist in the folders
-                tif_found = False
-                for root, _, files in os.walk(satellite_imagery_download_directory):
-                    if any(file.lower().endswith(('.tif', '.tiff')) for file in files):
-                        tif_found = True
-                        break # closes loop
-                if not tif_found:
-                    raise RuntimeError(f"GeoTIFF files are not found in the {satellite_imagery_download_directory}. Please unpack your data here and rerun the program.")
-                
-                # Checking if metadata table is filled out correctly
-                digitalglobe_metadata = pd.read_csv(PATHS["dg_csv_path"])
-                digitalglobe_metadata_no_header = pd.read_csv(PATHS["dg_csv_path"], header=0)
-                if digitalglobe_metadata_no_header.shape[0] == 0: 
-                    raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.") 
-                
-                # Now starting to process the non-DigitalGlobe satellite data
-                print(style.BOLD + "\n-----PROCESSING BEGINS (THIS TAKES A WHILE)----\n" + style.RESET)
-                print("Making directories based on metadata...\n")
-                #manageDirectories.setup_dirs(raw_directory= PATHS["satellite_directory"], csv_file=PATHS["dg_csv_path"], site=site)  
-                
-                # List the folders
-                folders_in_nonDG = [f for f in os.listdir(satellite_imagery_download_directory) if f != ".DS_Store"]
+        # If angle_metadata has INCORRECT header, then a RuntimeError is raised    
+        required_columns = ["site", "date", "id", "sensor", "targetazimuth", "offnadir", "solarazimuth", "solarelevation"]
+        satellite_metadata_header = satellite_metadata.columns.tolist()
+        if not all(item in satellite_metadata_header for item in required_columns):
+            raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.")
+
+        if satellite_metadata.isnull().values.any(): 
+                raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.") 
         
-                for folder in folders_in_nonDG: # folder (e.g. caldor_2012-03-19_wv02_05090939090)
-                    parts = folder.split("_") 
-                    main_folder = parts[0] # main_folder = caldor
-
-                    src_path = os.path.join(satellite_imagery_download_directory, folder) # source path from satellite_imagery_download_directory
-                    dst_main_folder = os.path.join(PATHS["satellite_directory"], main_folder) 
-                    # main folder is being created
-                    os.makedirs(dst_main_folder, exist_ok=True)
-
-                    # If .zip files and GeoTIFF files were found in those unzipped folders, then proceed to process the data
-                    if tif_found==True and zip_found==True:
-                            if os.path.isdir(src_path) and not os.path.exists(dst_subfolder):
-                                shutil.copytree(src_path, dst_subfolder)
-
-                    # If .zip files weren't found but GeoTIFF files, then proceed to process the data
-                    if tif_found==True and zip_found==False:
-                        for subfolder in os.listdir(src_path): # go over each subfolder inside
-                            src_subfolder = os.path.join(src_path, subfolder)
-                            dst_subfolder = os.path.join(dst_main_folder, subfolder)
-                            if os.path.isdir(src_subfolder) and not os.path.exists(dst_subfolder):
-                                shutil.copytree(src_subfolder, dst_subfolder)
-                    
-                # Tiling in 2020 x 2020
-                projected_data_directory = projectSatelliteImagery.projectSatelliteImagery(raw_directory=PATHS["satellite_directory"], angle_metadata=PATHS["dg_csv_path"], site_metadata=PATHS["site-metadata"])
-                PATHS["projected_satellite_data"]=projected_data_directory
-
-                print("Now, making the satellite inputs for the neural network...\n")
-                PATHS["inputs_wvimg"] = os.path.join(PATHS["inputs"], "wvimg")
-                os.makedirs(PATHS["inputs_wvimg"], exist_ok=True)
-                # Tiling in 512 x 512
-                prepareCRSForestData.PrepareForestData(input_directory=PATHS["projected_satellite_data"], output_directory=PATHS["inputs_wvimg"], path_to_shapefile=PATHS["projected-shapefile"])
-    
-
-            elif response_DG.upper() == "N":
-                raise RuntimeError("Once you receive email confirmation that your imagery order is fufilled, please rerun the program and download your imagery from DigitalGlobe using HTTPs. See documentation (docs/DIGITALGLOBE.md) for more details.")  
-            else:
-                raise RuntimeError("Invalid response. Please enter 'Y' or 'N'.")  
-        elif response.upper() == "N":
-            # Directions for non-DigitalGlobe
-            print("\nPlease see the documentation for more specific instructions using your own satellite data.\n")
-
-            input("\nUnpack your data into this directory:" +  "\n\n\t" + satellite_imagery_download_directory + "\n\nPress ENTER when complete:")
-
-            # Now starting to process the non-DigitalGlobe satellite data
-            # Checking if GeoTIFF data is correctly placed in the satellite_imagery_download_directory
-                 # ZACH I want to make sure that it can unzip folders and detect GEOtiffs put them in the correct folder, this will have to change if you update to no CELL with DG"
-            zip_folders = []
-            # First checks if files are .zip files
-            zip_found = False
-            try:
-                for root, _, files in os.walk(satellite_imagery_download_directory):
-                        if any(file.lower().endswith('.zip') for file in files):
-                            print(".zip files have been found.")
-                            zip_found = True
-                            break # closes loop
-                        for file in files:
-                            if file.endswith('.zip'):
-                                zip_folders.append(os.path.join(root, file))
-                for folder in zip_folders:
-                    unzip_and_remove(folder)
-            except:
-                print("Since .zip files not found, now looking for GeoTIFFS.")
-                pass
-
-            # Second checks if GeoTIFF files exist in the folders
-            tif_found = False
+         
+        # First checks if files are .zip files
+        zip_folders = []
+        zip_found = False
+        try:
             for root, _, files in os.walk(satellite_imagery_download_directory):
-                if any(file.lower().endswith(('.tif', '.tiff')) for file in files):
-                    tif_found = True
-                    break # closes loop
-            if not tif_found:
-                raise RuntimeError(f"GeoTIFF files are not found in the {satellite_imagery_download_directory}. Please unpack your data here and rerun the program.")
+                    if any(file.lower().endswith('.zip') for file in files):
+                        print(".zip files have been found.")
+                        zip_found = True
+                        break # closes loop
+                    for file in files:
+                        if file.endswith('.zip'):
+                            zip_folders.append(os.path.join(root, file))
+            for folder in zip_folders:
+                unzip_and_remove(folder)
+        except:
+            print("Since .zip files not found, now looking for GeoTIFFS.")
+            pass
+
+        # Second checks if GeoTIFF files exist in the folders
+        tif_found = False
+        for root, _, files in os.walk(satellite_imagery_download_directory):
+            if any(file.lower().endswith(('.tif', '.tiff')) for file in files):
+                tif_found = True
+                break # closes loop
+        if not tif_found:
+            raise RuntimeError(f"GeoTIFF files are not found in the {satellite_imagery_download_directory}. Please unpack your data here and rerun the program.")
             
             ## Checking if GeoTIFF data is correctly placed in the satellite_imagery_download_directory
             print("\nMaking directories based on metadata...\n")
-            manageDirectories.setup_dirs(raw_directory= PATHS["satellite_directory"], csv_file=PATHS["dg_csv_path"], site=site)
+            manageDirectories.setup_dirs(raw_directory= PATHS["satellite_directory"], csv_file=angle_metadata, site=site)
             folders_in_nonDG = [f for f in os.listdir(satellite_imagery_download_directory) if f != ".DS_Store"]
+
             print(style.BOLD + "\n-----PROCESSING BEGINS (THIS TAKES A WHILE)----\n" + style.RESET)
             for folder in folders_in_nonDG: # folder (e.g. caldor_2012-03-19_wv02_05090939090)
                 parts = folder.split("_") 
