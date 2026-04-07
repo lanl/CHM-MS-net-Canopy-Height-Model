@@ -38,31 +38,45 @@ from tools.tif_qaqc import unzip_and_remove, delete_non_tif, tif_qaqc, has_tif_f
 def main():
     print("\n" + style.FOREST + "SatCHM... 🌳" + style.RESET + "\n") 
     PATHS = start.start()
-    
+
     # Terminal stylings
     w, h = shutil.get_terminal_size()
     # Obtaining information (site, utm, dem_path, lidar_path, satellite_imagery_download_directory, angle_metadata and site_shapefile_path) from the .env file
     dotenv_path = find_dotenv()
     load_dotenv(dotenv_path)
-    site=os.getenv('site')
 
-    # If dem_path or lidar_path has wrong extension, then RuntimeError is raised
+    # If .env variable has has wrong extension or is blank, then RuntimeError is raised
+    site=os.getenv('site')
+    if site== '':
+        raise RuntimeError(".env file must contain a value for \"site\"") 
+
     dem_path = os.getenv("dem_path")
+    if dem_path== '':
+        raise RuntimeError(".env file must contain a value for \"dem_path\"") 
     if not dem_path.lower().endswith((".tif", ".tiff")):
         raise RuntimeError(f"dem path must end with .tif: {dem_path}")
 
     lidar_path = os.getenv("lidar_path")
+    if lidar_path== '':
+        raise RuntimeError(".env file must contain a value for \"lidar_path\"") 
     if not lidar_path.lower().endswith((".tif", ".tiff")):
         raise RuntimeError(f"lidar path must end with .tif: {lidar_path}")
     
     satellite_imagery_download_directory = os.getenv('satellite_download_dir')
+    if satellite_imagery_download_directory== '':
+        raise RuntimeError(".env file must contain a value for \"satellite_download_dir\"") 
+
     angle_metadata = os.getenv("angle_metadata")
-    
-    # If site_shapefile_path is blank, then a RuntimeError is raised 
+    if angle_metadata== '':
+        raise RuntimeError(".env file must contain a value for \"angle_metadata\"") 
+    if not lidar_path.lower().endswith((".csv",)):
+        raise RuntimeError(f"angle_metadata path must end with .csv: {angle_metadata}")
     
     print("-" * w)
     print(style.BOLD + "\n-----SHAPEFILE SELECTION-----\n" + style.RESET)
-       site_shapefile_path=os.getenv('site_shapefile_dir')
+
+    # If site_shapefile_path is blank, then a RuntimeError is raised 
+    site_shapefile_path=os.getenv('site_shapefile_dir')
     if site_shapefile_path == '':
         raise RuntimeError(".env file must contain a value for \"site_shapefile_path\"") 
     
