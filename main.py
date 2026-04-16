@@ -47,29 +47,34 @@ def main():
 
     # If .env variable has has wrong extension or is blank, then RuntimeError is raised
     site=os.getenv('site')
+    site = site.strip()
     if site== '':
         raise RuntimeError(".env file must contain a value for \"site\"") 
 
     dem_path = os.getenv("dem_path")
+    dem_path = dem_path.strip()
     if dem_path== '':
-        raise RuntimeError(".env file must contain a value for \"dem_path\"") 
+        raise RuntimeError(f".env file must contain a value for {dem_path}") 
     if not dem_path.lower().endswith((".tif", ".tiff")):
         raise RuntimeError(f"dem path must end with .tif: {dem_path}")
 
     lidar_path = os.getenv("lidar_path")
+    lidar_path = lidar_path.strip()
     if lidar_path== '':
-        raise RuntimeError(".env file must contain a value for \"lidar_path\"") 
+        raise RuntimeError(f".env file must contain a value for {lidar_path}") 
     if not lidar_path.lower().endswith((".tif", ".tiff")):
         raise RuntimeError(f"lidar path must end with .tif: {lidar_path}")
     
     satellite_imagery_download_directory = os.getenv('satellite_download_dir')
+    satellite_imagery_download_directory = satellite_imagery_download_directory.strip()
     if satellite_imagery_download_directory== '':
-        raise RuntimeError(".env file must contain a value for \"satellite_download_dir\"") 
+        raise RuntimeError(f".env file must contain a value for {satellite_download_dir}") 
 
     angle_metadata = os.getenv("angle_metadata")
+    angle_metadata = angle_metadata.strip()
     if angle_metadata== '':
-        raise RuntimeError(".env file must contain a value for \"angle_metadata\"") 
-    if not lidar_path.lower().endswith((".csv",)):
+        raise RuntimeError(f".env file must contain a value for {angle_metadata}") 
+    if not angle_metadata.lower().endswith((".csv")):
         raise RuntimeError(f"angle_metadata path must end with .csv: {angle_metadata}")
     
     print("-" * w)
@@ -78,7 +83,7 @@ def main():
     # If site_shapefile_path is blank, then a RuntimeError is raised 
     site_shapefile_path=os.getenv('site_shapefile_dir')
     if site_shapefile_path == '':
-        raise RuntimeError(".env file must contain a value for \"site_shapefile_path\"") 
+        raise RuntimeError(f".env file must contain a value for {site_shapefile_path}") 
     
     # Searching for .shp file in the site_shapefile_path provided in .env
     shapefile_name = None
@@ -162,12 +167,12 @@ def main():
             # main folder is being created
             os.makedirs(dst_main_folder, exist_ok=True)
     
-            # If .zip files and GeoTIFF files were found in those unzipped folders, then proceed to process the data
+            # If .zip files and GeoTIFF files were found in those unzipped folders, then proceed to process the data 
             if tif_found==True and zip_found==True:
                     if os.path.isdir(src_path) and not os.path.exists(dst_subfolder):
                         shutil.copytree(src_path, dst_subfolder)
 
-            # If .zip files weren't found but GeoTIFF files, then proceed to process the data TODO
+            # If .zip files weren't found but GeoTIFF files, then proceed to process the data 
             if tif_found==True and zip_found==False:
                 for subfolder in os.listdir(src_path): # go over each subfolder inside
                     src_subfolder = os.path.join(src_path, subfolder)
