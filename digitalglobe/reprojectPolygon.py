@@ -52,7 +52,6 @@ def reproject_shapefile(shp_file_path):
     #print(f"Reprojected {site} polygon...\n")
     #print(f"Obtained bounds metadata for {site} polygon...\n")
 
-
     # Obtaining bounds for shapefile
     minx, miny, maxx, maxy = gdf.total_bounds
 
@@ -63,9 +62,7 @@ def reproject_shapefile(shp_file_path):
     'e1': [maxx],
     'n0': [miny],
     'n1': [maxy],
-    'utm_code': ['EPSG:32610'],
-    'chunk_or_whole' : ['whole bounds'] #ZACH
-    }
+    'utm_code': ['EPSG:32610']}
 
     # Save site metadata to a csv
     output_csv_path = os.path.join(project_directory, "metadata", "site-metadata.csv")
@@ -77,8 +74,6 @@ def reproject_shapefile(shp_file_path):
         writer = csv.DictWriter(csvfile, fieldnames=data.keys())
         writer.writeheader()
         writer.writerow({k: str(v[0]) for k, v in data.items()})
-
-    #print(f"Saved metadata to {os.path.basename(output_csv_path)}...\n")
 
     return output_shp_path, output_csv_path
 

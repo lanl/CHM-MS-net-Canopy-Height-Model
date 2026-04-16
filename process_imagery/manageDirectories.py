@@ -62,17 +62,10 @@ class Manager:
             A list of the folder paths from the angle-metadata.csv
         """
         df = pd.read_csv(csv_file)
-        df = df[df["site"] == site]
-        combinations = df[['site', 'cell']].drop_duplicates()
         main_folder_paths = {}
         for _, row in combinations.iterrows():
             site = row['site']
-            cell = row['cell']
-            if pd.isna(cell):  
-                cell = ''  
-            else:
-                cell = int(cell)
-            folder_name = f"{site}{cell}"
+            folder_name = f"{site}"
             folder_path_main = os.path.join(self.base_path, folder_name)
             os.makedirs(folder_path_main, exist_ok=True)
             #print(f"Created folder: {folder_path_main}")
@@ -94,23 +87,20 @@ class Manager:
             df = pd.read_csv(csv_file)
             for _, row in df.iterrows():
                 site = row["site"]
-                cell = row["cell"]
-                if pd.isna(cell):  
-                    cell = ''     # empty cell
-                else:
-                    cell = int(cell)
                 # Makes dates into the correct format (if incorrectly formated)
                 date = row["date"].replace('/', '-')  
                 date = pd.to_datetime(row["date"]).strftime('%Y-%m-%d')
                 # If there are sites that have the same name, cell, sensor, and date, but different angle information from digital-globe, this creates unique site IDs
                 sensor = row["sensor"]
-                match = re.fullmatch(r"wv0(\d+)-(\d+)", sensor)
+                # For dealing with any sensor, if num/lettersA-num/lettersB, than site.B_date otherwise it is site_date
+                # This is to deal with if you have a site that has the same date, same site, but different metadata, you add a dash to the sensor to differentiate the two collections of imagery (see documentation)
+                match = re.fullmatch(r"(\w+)-(\w+)", sensor)
                 if match:
-                    subfolder_name = site + f'{cell}' + ('.' + match.group(2) if match.group(2) else '') + '_' + date
+                    subfolder_name = site + ('.' + match.group(2) if match.group(2) else '') + '_' + date
                 else:
-                    subfolder_name = site + f'{cell}' + '_' + date
+                    subfolder_name = site + '_' + date
 
-                main_folder = f"{site}{cell}"
+                main_folder = f"{site}
                 if main_folder in main_folder_paths:
                     subfolder_path = os.path.join(main_folder_paths[main_folder], subfolder_name)
                     os.makedirs(subfolder_path, exist_ok=True)
