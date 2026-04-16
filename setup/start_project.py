@@ -38,7 +38,6 @@ def start():
     print("-" * w)
     print("\n" + style.BOLD + "Project Directory:" + style.RESET, directory + "\n")
    
-
     os.makedirs(directory, exist_ok=True)
     site=os.getenv('site')
 
@@ -58,12 +57,6 @@ def start():
     paths["inputs"] = os.path.join(directory, 'inputs')
     os.makedirs(paths["inputs"], exist_ok=True)
     
-    # Making .csv file for documenting site data from DigitalGlobe 
-    paths["dg_csv_path"] = os.path.join(paths["metadata"], 'angle-metadata.csv')
-    if not os.path.exists(paths["dg_csv_path"]): 
-        header = "site,cell,date,id,sensor,targetazimuth,offnadir,solarazimuth,solarelevation"
-        with open(paths["dg_csv_path"], "w", newline="") as f:
-            f.write(header)
     return paths
 
 
