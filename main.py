@@ -5,7 +5,7 @@ This program was produced under U.S. Government contract 89233218CNA000001 for L
 
 
 """
-Main script for CHMer. Written by Mia Mitchell.
+Main script for SatCHM. Written by Mia Mitchell.
 """
 import os
 import shutil
@@ -108,32 +108,19 @@ def main():
         PATHS["satellite_directory"] = os.path.join(PATHS["new_project"], 'satellite-data')
         os.makedirs(PATHS["satellite_directory"], exist_ok=True)
 
-        # If satellite_imagery_download_directory in .env is blank, then a RuntimeError is raised
-        if satellite_imagery_download_directory == '':
-            raise RuntimeError(".env file must contain a value for satellite_imagery_download_directory") 
-        
-        # Checking angle_metadata
-         # If angle_metadata in .env is blank, then a RuntimeError is raised
-        if angle_metadata== '':
-            raise RuntimeError(".env file must contain a value for angle_metadata") 
-
-        # If angle_metadata has incomplete fields, then a RuntimeError is raised    
+        # If angle_metadata has INCORRECT header, has no header or it is blank, then a RuntimeError is raised    
         satellite_metadata = pd.read_csv(angle_metadata)
-        satellite_metadata_no_header = pd.read_csv(angle_metadata), header=0)
+        satellite_metadata_no_header = pd.read_csv((angle_metadata), header=0)
         if satellite_metadata_no_header.shape[0] == 0: 
             raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.") 
-
-        # If angle_metadata has INCORRECT header, then a RuntimeError is raised    
         required_columns = ["site", "date", "id", "sensor", "targetazimuth", "offnadir", "solarazimuth", "solarelevation"]
         satellite_metadata_header = satellite_metadata.columns.tolist()
         if not all(item in satellite_metadata_header for item in required_columns):
             raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.")
-
         if satellite_metadata.isnull().values.any(): 
                 raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.") 
         
-         
-        # First checks if files are .zip files
+        # If geotiffs (or geotiffs within zipped folders) are not found, then a RuntimeError is raised
         zip_folders = []
         zip_found = False
         try:
@@ -199,8 +186,6 @@ def main():
         # Tiling in 512 x 512
         prepareCRSForestData.PrepareForestData(input_directory=PATHS["projected_satellite_data"], output_directory=PATHS["inputs_wvimg"], path_to_shapefile=PATHS["projected-shapefile"])
 
-
-    
     ###################################### DEM DATA ##########################################
     # If DEM inputs are detected, it will proceed to CHM data
     if os.path.isdir(os.path.join(PATHS["inputs"], "dem")) and has_tif_files(os.path.join(PATHS["inputs"], "dem")):
