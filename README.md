@@ -1,11 +1,8 @@
-# CHMer (Canopy Height Model-er)
+# SatCHM (Satellite Canopy Height Model)
 
-## Motivation
+# Motivation
 
-Canopy Height Models (CHMs) are useful tools for a wide variety of applications: 3D construction of wildland fuels, biomass estimates, land management, tracking deforestation, etc (Linn et al., 2020; Marcozzi et al., 2025). High-resolution CHMs are usually obtained from processing Digital Terrain Models (DTMs) from LiDAR data and subtracting those from Digital Elevation Models (DEMs) (Allred et al., 2025). However, LiDAR data is expensive and is collected less frequently compared to satellite imagery (Dassot et al., 2011). Therefore, this program leverages a system of convolutional neural networks (MS-net) to predict CHMs from satellite imagery.
-## Description
-
-These are the required inputs to use CHMer, followed by the output:
+These are the required inputs to use **SatCHM**, followed by the output:
 
 ![Alt text](pictures/inputs.png)
 
@@ -26,7 +23,7 @@ These are the required inputs to use CHMer, followed by the output:
       <td>Input DEMs of the target area should at least be 30 meters resolution</td>
 	  <tr>
       <td>Solar and Sensor Angles</td>
-      <td>Solar and sensor inputs are created with CHMer using the target azimuth, off-nadir angle, solar azimuth, and solar elevation metadata from the satellite imagery </td>
+      <td>Solar and sensor inputs are created with SatCHM using the target azimuth, off-nadir angle, solar azimuth, and solar elevation metadata from the satellite imagery. This information is entered in the angle metadata. </td>
     </tr>
 	<tr>
       <td>Lidar-produced CHMs </td>
@@ -61,9 +58,16 @@ This specifies CUDA 11.8 (as indicated by cu118). However, you must adjust this 
 Download from [PyTorch Get Started Locally](https://pytorch.org/get-started/locally/). **There, you can select your preferences (OS, package manager, Python version, and CUDA version), and it will generate the exact install command you need.**
 
 
-
-
 ## Getting Started
+
+ Throughout the documentation, we will be using the project 'caldor' as an example. Caldor references the Caldor Fire of 2021, south of Lake Tahoe, California. All satellite images were taken before this fire occured. The worldview satellite images were downloaded from Vantor (formerly Maxar Intelligence). Airborne lidar data of south Lake Tahoe was collected in 2010 and was downloaded from [NASA Earthdata](https://www.earthdata.nasa.gov/data/catalog/ornl-cloud-cms-lidar-agb-california-1537-1#toc-product-summary). 
+
+<div align="center">
+<img src="pictures/caldor.png" width="700" height="500">
+</div>
+
+#### To download tutorial data, following these instructions:
+
 Create a .env file where the repo is located. Edit the file in a text editor.
 
 
@@ -76,8 +80,8 @@ Create a .env file where the repo is located. Edit the file in a text editor.
 | lidar_path | the path to the lidar-produced CHM GeoTIFF within the site (ends in .tif or .tiff)  |
 | site_shapefile_dir | the path to the directory to the shapefile of the site   |
 | satellite_download_dir| the path to the directory that holds the satellite GeoTIFFs   |
+| angle_metadata| the path to the .csv that holds solar and sensor angle metadata   |
 
-#### Throughout the documentation, we will be using the project 'caldor' as an example. Caldor references the Caldor Fire of 2021, south of Lake Tahoe, California. Here is the example:
 ```
 UW PICO 5.09                                    File: .env                                       
 
@@ -87,52 +91,50 @@ utm=EPSG:32610
 dem_path=/mnt/c/Users/mia/Documents/LANLCHM/caldor_dem.tif
 lidar_path=/mnt/c/Users/mia/Documents/LANLCHM/caldorchm.tif
 site_shapefile_path=/mnt/c/Users/mia/Documents/LANLCHM/wgs84_caldor
-satellite_download_dir=/mnt/c/Users/mia/Documents/LANLCHM/satellite_data
+satellite_download_dir=/mnt/c/Users/miashell/Documents/LANLCHM/satellite_data
+angle_metadata=/mnt/c/Users/miashell/Documents/LANLCHM/angle-metadata.csv
 
 ```
 Document the appropriate paths and directories in the <strong><span style="color:#33484D">.env</span></strong> before running the program.
 
-If you are using Maxar's DigitalGlobe to accquire your satellite imagery, then WKT files are generated for you to use in their [online platform](https://evwhs.digitalglobe.com/myDigitalGlobe/login): follow [the documentation here](./docs/DIGITALGLOBE.md). If you are using your own imagery, [see additional details here](./docs/OWNIMAGERY.md) and place your imagery in the **satellite_download_dir** specified in your .env. 
+If you are using your own imagery, [see additional details here](./docs/OWNIMAGERY.md) and place your imagery in the **satellite_download_dir** specified in your .env. 
 
 
 ## Running Main
 
+
 After creating the .env, run main.
-```
-python main.py
-```
+```console
+(satchmenv) mia > python main.py
 
 
-```
 SatCHM... 🌳
 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-Project Directory: /mnt/c/Users/mia/Documents/caldor_run
+Project Directory: /mnt/c/Users/miashell/Documents/caldor_run
 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 -----SHAPEFILE SELECTION-----
 
-Using shapefile "caldor_wgs84.shp" in /mnt/c/Users/mia/Documents/wgs84_caldor
+Using shapefile "caldor_wgs84.shp" in /mnt/c/Users/miashell/Documents/LANLCHM/wgs84_caldor
 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 -----PROCESSING INPUT DATA-----
 
 Processing the satellite imagery...
 
-Open this .CSV file for documenting angle metadata. Please keep this open as you proceed:
 
-         /mnt/c/Users/mia/Documents/caldor_run/metadata/angle-metadata.csv
-
-
-Are you using DigitalGlobe? (Y/N):
+Making directories based on metadata...
 
 ```
 <br>
 
-If you are using Vantor Imagery, answer Y and follow the documentation [here](./docs/DIGITALGLOBE.md). If you are using your own imagery, answer N and follow the documentation [here](./docs/OWNIMAGERY.md)
+(1) Talk about the tree aspect
+
+(2) How it is making 
 
 ---
 
