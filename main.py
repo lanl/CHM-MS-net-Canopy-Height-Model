@@ -104,6 +104,10 @@ def main():
     # If satellite (wvimg) inputs are detected, it will proceed to DEM data
     print("-" * w)
     print(style.BOLD + "\n-----PROCESSING INPUT DATA-----\n" + style.RESET)
+    # Creating a new satellite data directory in ms-data
+    PATHS["satellite_directory"] = os.path.join(PATHS["new_project"], 'satellite-data')
+    os.makedirs(PATHS["satellite_directory"], exist_ok=True)
+    
     if os.path.isdir(os.path.join(PATHS["inputs"], "wvimg")) and has_tif_files(os.path.join(PATHS["inputs"], "wvimg")):
         print("Satellite data detected in inputs folder... ✅ \n")
     else:
