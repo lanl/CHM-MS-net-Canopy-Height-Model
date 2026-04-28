@@ -128,26 +128,14 @@ def main():
             raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.")
         if satellite_metadata.isnull().values.any(): 
                 raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.") 
-        
-        # If geotiffs (or geotiffs within zipped folders) are not found, then a RuntimeError is raised
-        zip_folders = []
-        zip_found = False
-        try:
-            for root, _, files in os.walk(satellite_imagery_download_directory):
-                    if any(file.lower().endswith('.zip') for file in files):
-                        print(".zip files have been found.")
-                        zip_found = True
-                        break # closes loop
-                    for file in files:
-                        if file.endswith('.zip'):
-                            zip_folders.append(os.path.join(root, file))
-            for folder in zip_folders:
-                unzip_and_remove(folder)
-        except:
-            print("Since .zip files not found, now looking for GeoTIFFS.")
-            pass
+ 
+        ## Checking if GeoTIFF data is correctly placed in the satellite_imagery_download_directory
+        print("\nMaking directories based on metadata...\n")
+        manageDirectories.setup_dirs(raw_directory= PATHS["satellite_directory"], csv_file=angle_metadata, site=site)
+        folders_in_satellite = [f for f in os.listdir(satellite_imagery_download_directory) if f != ".DS_Store"]
+        print(style.BOLD + "\n-----PROCESSING BEGINS (THIS TAKES A WHILE)----\n" + style.RESET)
 
-        # Second checks if GeoTIFF files exist in the folders
+        # Checks if GeoTIFF files exist in the folders
         tif_found = False
         for root, _, files in os.walk(satellite_imagery_download_directory):
             if any(file.lower().endswith(('.tif', '.tiff')) for file in files):
