@@ -71,6 +71,7 @@ def main():
     satellite_imagery_download_directory = satellite_imagery_download_directory.strip()
     if satellite_imagery_download_directory== '':
         raise RuntimeError(f".env file must contain a value for {satellite_download_dir}") 
+    PATHS["satellite_raw_directory"] = satellite_imagery_download_directory
 
     angle_metadata = os.getenv("angle_metadata")
     angle_metadata = angle_metadata.strip()
@@ -87,7 +88,6 @@ def main():
     site_shapefile_path=os.getenv('site_shapefile_dir')
     if site_shapefile_path == '':
         raise RuntimeError(f".env file must contain a value for {site_shapefile_path}") 
-    
     # Searching for .shp file in the site_shapefile_path provided in .env
     shapefile_name = None
     for filename in os.listdir(site_shapefile_path):
@@ -97,34 +97,33 @@ def main():
             print(f"Using shapefile \"{filename}\" in {site_shapefile_path}\n")
     if shapefile_name is None:
         raise RuntimeError(f"No shapefile (.shp extension) found in {site_shapefile_path}")
+    PATHS["site_shapefile_path"] = site_shapefile_path
 
     # This script (reprojectPolygon.py) reprojects the shp file into UTM and saves the metadata about the site's bounding box into a csv                  
     output_shp_path, output_csv_path = reprojpoly.reproject_shapefile(shapefile_path)
     PATHS["site-metadata"] = output_csv_path
     PATHS["projected-shapefile"] = output_shp_path
 
+    print("-" * w)
+    print(style.BOLD + "\n-----PREPROCESSING BEGINS (THIS TAKES A WHILE)-----\n" + style.RESET)
+    print("-" * w)
     ######################################### SATELLITE DATA ########################################
     # Path creation for satellite data outputs
     PATHS["satellite_copied_directory"] = os.path.join(PATHS["new_project"], 'satellite-data')
     PATHS["inputs_wvimg"] = os.path.join(PATHS["inputs"], "wvimg")
     print("-" * w)
-    print(style.BOLD + "\n-----PROCESSING INPUT DATA-----\n" + style.RESET)
-    # Creating a new satellite data directory in ms-data
-    PATHS["satellite_directory"] = os.path.join(PATHS["new_project"], 'satellite-data')
-    os.makedirs(PATHS["satellite_directory"], exist_ok=True)
-    
-    if os.path.isdir(os.path.join(PATHS["inputs"], "wvimg")) and has_tif_files(os.path.join(PATHS["inputs"], "wvimg")):
-        print("Satellite data detected in inputs folder... ✅ \n")
-    else:
-        
-        print(style.FOREST + "Processing the satellite imagery..." + style.RESET + "\n")
-        # Creating a new satellite data directory in ms-data
-        PATHS["satellite_directory"] = os.path.join(PATHS["new_project"], 'satellite-data')
-        os.makedirs(PATHS["satellite_directory"], exist_ok=True)
 
-        # If angle_metadata has INCORRECT header, has no header or it is blank, then a RuntimeError is raised    
-        satellite_metadata = pd.read_csv(angle_metadata)
-        satellite_metadata_no_header = pd.read_csv((angle_metadata), header=0)
+    # If satellite (wvimg) inputs are detected, it will proceed to DEM data, otherwise it will process the satellite data
+    if os.path.isdir(os.path.join(PATHS["inputs"], "wvimg")) and has_tif_files(os.path.join(PATHS["inputs"], "wvimg")):
+        print("Satellite data detected in inputs folder... ✅")
+    else:
+        print(style.BOLD + "\n-----PROCESSING SATELLITE DATA-----\n" + style.RESET)
+        os.makedirs(PATHS["satellite_copied_directory"], exist_ok=True)
+        os.makedirs(PATHS["inputs_wvimg"], exist_ok=True)
+
+        # If angle_metadata has INCORRECT header, has no header or it is blank, then a RuntimeError is raised (ADDITIONAL CHECKS)  
+        satellite_metadata = pd.read_csv(PATHS["angle_metadata"])
+        satellite_metadata_no_header = pd.read_csv((PATHS["angle_metadata"]), header=0)
         if satellite_metadata_no_header.shape[0] == 0: 
             raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.") 
         required_columns = ["site", "date", "sensor", "targetazimuth", "offnadir", "solarazimuth", "solarelevation"]
