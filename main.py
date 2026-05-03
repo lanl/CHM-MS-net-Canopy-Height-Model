@@ -275,7 +275,6 @@ def main():
     delete_non_tif(PATHS["inputs_dem"])
 
     #################################### CALCULATE BOUNDS #######################################
-    # If bounds are already created, then this will be skipped
     print("-" * w)
     print(style.BOLD + "\n-----PROCESSING INPUT METADATA-----\n" + style.RESET)
     output_bounds_json = os.path.join(PATHS["inputs"], "bounds.json")
@@ -298,28 +297,15 @@ def main():
         matchkeys.matchKeys('chm')
  
     ##################################### TRAINING, TESTING, & VALIDATION ##################################
-    # If lists are already named, then this will be skipped. 
-    if os.path.exists(os.path.join(PATHS["inputs"], f"{site}_train.txt")) and os.path.exists(os.path.join(PATHS["inputs"], f"{site}_val.txt")) and os.path.exists(os.path.join(PATHS["inputs"], f"{site}_test.txt")):
-        print("Training, testing, and validation lists are already made... ✅ \n")
-        print("-" * w)
-        response_list = input("\nWould you like to make new training, testing, and validation lists? (Y/N):")
-        # You may rewrite lists
-        if response_list.upper() == "Y":
-            print(style.FOREST + "Rewriting the training, testing, and validation lists..." + style.RESET)
-            train_val_list.train_val_test_split()
-        # You may continue with existing ones
-        elif response_list.upper() == "N":
-            print("Continuing with existing training, testing, and validation lists...")
-        else:
-            raise RuntimeError("Invalid response. Please enter 'Y' or 'N'.")
-    else:
-        print(style.FOREST + "Writing the training, testing, and validation lists..." + style.RESET)
-        train_val_list.train_val_test_split()
-
+    print("-" * w)
+    print(style.FOREST + "Rewriting the training, testing, and validation lists..." + style.RESET)
+    train_val_list.train_val_test_split()
     ######################################################################################################
     # Neural network is initiated
     print("-" * w)
-    print(style.PURPLE + "\nInitiating the neural network...\n" + style.RESET)
+    print("-" * w)
+
+    print(style.BOLD + "\n-----INITIATING THE NEURAL NETWORK-----\n" + style.RESET)
     
     print("\nTraining is in progress...")
     print("\n\n\nYou can monitor the validation loss and other metrics using Tensorboard.")
