@@ -127,7 +127,7 @@ def projectSatelliteImagery(raw_directory, angle_metadata, site_metadata):
         chunk_pbar.write(f"\n\nWorking on chunk: {chunk}\n")
         
         subsub_folders = [f for f in os.listdir(chunk_path) if os.path.isdir(os.path.join(chunk_path, f)) and f != ".DS_Store"]
-        chunk_pbar.write(f"And its subfolders: {subsub_folders}\n")
+        chunk_pbar.write(f"Chunk subfolders: {subsub_folders}\n")
         
         tif_files = []
         for folder in subsub_folders:
