@@ -57,6 +57,7 @@ def main():
         raise RuntimeError(f".env file must contain a value for {dem_path}") 
     if not dem_path.lower().endswith((".tif", ".tiff")):
         raise RuntimeError(f"dem path must end with .tif: {dem_path}")
+    PATHS["dem_raw_path"] = dem_path
 
     lidar_path = os.getenv("lidar_path")
     lidar_path = lidar_path.strip()
@@ -64,6 +65,7 @@ def main():
         raise RuntimeError(f".env file must contain a value for {lidar_path}") 
     if not lidar_path.lower().endswith((".tif", ".tiff")):
         raise RuntimeError(f"lidar path must end with .tif: {lidar_path}")
+    PATHS["lidar_raw_path"] =  lidar_path
     
     satellite_imagery_download_directory = os.getenv('satellite_download_dir')
     satellite_imagery_download_directory = satellite_imagery_download_directory.strip()
@@ -76,6 +78,7 @@ def main():
         raise RuntimeError(f".env file must contain a value for {angle_metadata}") 
     if not angle_metadata.lower().endswith((".csv")):
         raise RuntimeError(f"angle_metadata path must end with .csv: {angle_metadata}")
+    PATHS["angle_metadata"] = angle_metadata
     
     print("-" * w)
     print(style.BOLD + "\n-----SHAPEFILE SELECTION-----\n" + style.RESET)
@@ -101,7 +104,9 @@ def main():
     PATHS["projected-shapefile"] = output_shp_path
 
     ######################################### SATELLITE DATA ########################################
-    # If satellite (wvimg) inputs are detected, it will proceed to DEM data
+    # Path creation for satellite data outputs
+    PATHS["satellite_copied_directory"] = os.path.join(PATHS["new_project"], 'satellite-data')
+    PATHS["inputs_wvimg"] = os.path.join(PATHS["inputs"], "wvimg")
     print("-" * w)
     print(style.BOLD + "\n-----PROCESSING INPUT DATA-----\n" + style.RESET)
     # Creating a new satellite data directory in ms-data
@@ -175,77 +180,71 @@ def main():
                 if os.path.isdir(src_path) and not os.path.exists(dst_subfolder):
                         shutil.copytree(src_path, dst_subfolder)
 
-        # Tiling in 2020 x 2020       
-        projected_data_directory = projectSatelliteImagery.projectSatelliteImagery(raw_directory=PATHS["satellite_directory"], angle_metadata=PATHS["dg_csv_path"], site_metadata=PATHS["site-metadata"])
-        print("\nNow, making the satellite inputs for the neural network...\n")
-        PATHS["inputs_wvimg"] = os.path.join(PATHS["inputs"], "wvimg")
-        os.makedirs(PATHS["inputs_wvimg"], exist_ok=True)
+        # Tiling in 2020 x 2020
+        print(style.DARKCYAN + "\nNow tiling 2020 x 2020..." + style.RESET)
+        projected_data_directory = projectSatelliteImagery.projectSatelliteImagery(raw_directory=PATHS["satellite_copied_directory"], angle_metadata=PATHS["angle_metadata"], site_metadata=PATHS["site-metadata"])
+        PATHS["satellite_projected_directory"] = projected_data_directory 
+
         # Tiling in 512 x 512
         prepareCRSForestData.PrepareForestData(input_directory=PATHS["projected_satellite_data"], output_directory=PATHS["inputs_wvimg"], path_to_shapefile=PATHS["projected-shapefile"])
 
     ###################################### DEM DATA ##########################################
-    # If DEM inputs are detected, it will proceed to CHM data
-    if os.path.isdir(os.path.join(PATHS["inputs"], "dem")) and has_tif_files(os.path.join(PATHS["inputs"], "dem")):
-        print("DEM data detected in inputs folder... ✅ \n")
-    else:
-        print("\n" + style.FOREST + "Processing the dem data..." + style.RESET + "\n") 
-        # This script bounding boxes of the shapefiles (if bounding boxes need to be divided into smaller cells, not print statements though)
-        generateforDG.creating_geoinfo(output_shp_path, printt=False)
-        
-        # If dem_path in .env is blank, then a RuntimeError is raised
-        if dem_path == '':
-            raise RuntimeError(".env file must contain a value for dem_path") 
-        else:
-            # Reprojecting DEM data
-            PATHS["dem_data"] = os.path.join(PATHS["new_project"], "dem-data")
-            os.makedirs(PATHS["dem_data"], exist_ok=True)
-            print("\nReprojecting and cropping DEM data...\n") 
-            output_file_reprojected = reprojectCrop.reprojectTif(dem_path, PATHS["dem_data"], output_shp_path, resolution=30)
-            PATHS["projected_dem_data"] = os.path.join(PATHS["new_project"], "dem-data", "projected-data")
-            # Making a new directory for the projected DEM data
-            os.makedirs(PATHS["projected_dem_data"], exist_ok=True)
+    # Path creation for DEM data outputs
+    PATHS["dem_data"] = os.path.join(PATHS["new_project"], "dem-data")
+    os.makedirs(PATHS["dem_data"], exist_ok=True)
+    PATHS["projected_dem_data"] = os.path.join(PATHS["new_project"], "dem-data", "projected-data")
+    os.makedirs(PATHS["projected_dem_data"], exist_ok=True)
+    PATHS["inputs_dem"] = os.path.join(PATHS["inputs"], "dem")
+    print("-" * w)
 
-            # Tiling 2020 x 2020
-            print(style.DARKCYAN + "\nNow tiling...\n" + style.RESET)
-            processLidarDEM.processAuxTifs(input_tif=output_file_reprojected, output_directory=PATHS["projected_dem_data"])
-            print(style.DARKCYAN + "Now, making the DEM inputs for the neural network..." + style.RESET)
-            PATHS["inputs_dem"] = os.path.join(PATHS["inputs"], "dem")
-            os.makedirs(PATHS["inputs_dem"], exist_ok=True)
-            # Tiling 512 x 512
-            prepareCRSForestData.PrepareForestData(input_directory=PATHS["projected_dem_data"], output_directory=PATHS["inputs_dem"], path_to_shapefile=output_shp_path) 
+     # If DEM inputs are detected, it will proceed to lidar data, otherwise it will proceed to processing dem data
+    if os.path.isdir(PATHS["inputs_dem"]) and has_tif_files(PATHS["inputs_dem"]):
+        print("DEM data detected in inputs folder... ✅")
+    else:
+        print(style.BOLD + "\n-----PROCESSING DEM DATA-----\n" + style.RESET)
+        os.makedirs(PATHS["inputs_dem"], exist_ok=True)
+
+        # Reprojecting DEM data
+        print("\nReprojecting and cropping dem data...\n") 
+        output_dem_tif_reprojected = reprojectCrop.reprojectTif(input_file=PATHS["dem_raw_path"], output_dir=PATHS["dem_data"], site_shapefile_path=PATHS["projected-shapefile"], resolution=30)
+        PATHS["dem_reprojected_tif"] = output_dem_tif_reprojected
+
+        # Tiling 2020 x 2020
+        print(style.DARKCYAN + "\nNow tiling 2020 x 2020..." + style.RESET)
+        processLidarDEM.processAuxTifs(raw_directory=PATHS["satellite_copied_directory"], metadata_path=PATHS["site-metadata"], input_tif=PATHS["dem_reprojected_tif"], output_directory=PATHS["projected_dem_data"])
+       
+        # Tiling 512 x 512
+        print(style.CYAN + "\n\nNOW MAKING THE DEM INPUTS FOR THE NEURAL NETWORK..." + style.RESET)
+        prepareCRSForestData.PrepareForestData(input_directory=PATHS["projected_dem_data"], output_directory=PATHS["inputs_dem"], path_to_shapefile=PATHS["projected-shapefile"]) 
 
     ################################## LIDAR (CHM) DATA #####################################
-    # If CHM inputs are detected, it will proceed to solar/sensor data
-    if os.path.isdir(os.path.join(PATHS["inputs"], "chm")) and has_tif_files(os.path.join(PATHS["inputs"], "chm")):
-        print("Lidar (chm) data detected in inputs folder... ✅ \n")
+    # Path creation for lidar data outputs
+    PATHS["projected_lidar_data"] = os.path.join(PATHS["new_project"], "lidar-data", "projected-data")
+    os.makedirs(PATHS["projected_lidar_data"], exist_ok=True)
+    PATHS["chm_data"] = os.path.join(PATHS["new_project"], "chm-data")
+    os.makedirs(PATHS["chm_data"], exist_ok=True)
+    PATHS["inputs_chm"] = os.path.join(PATHS["inputs"], "chm")
+    print("-" * w)
+
+    # If CHM inputs are detected, it will proceed to solar/sensor data, otherwise it will proceed to processing lidar data
+    if os.path.isdir(PATHS["inputs_chm"]) and has_tif_files(PATHS["inputs_chm"]):
+        print("Lidar (chm) data detected in inputs folder... ✅")
     else:
-        print(style.FOREST + "Processing the lidar data...." + style.RESET)
-        # This script bounding boxes of the shapefiles (if bounding boxes need to be divided into smaller cells, not print statements though)
-        generateforDG.creating_geoinfo(output_shp_path, printt=False)
+        print(style.BOLD + "\n-----PROCESSING LIDAR DATA-----\n" + style.RESET)
+        os.makedirs(PATHS["inputs_chm"], exist_ok=True)
+       
+        # Reprojecting CHM data
+        print("\nReprojecting and cropping lidar data...") 
+        output_lidar_tif_reprojected = reprojectCrop.reprojectTif(lidar_path, PATHS["chm_data"], output_shp_path, resolution = 0.5)
+        PATHS["lidar_reprojected_tif"] = output_lidar_tif_reprojected 
 
-        # If lidar_path in .env is blank, then a RuntimeError is raised
-        if lidar_path == '':
-            raise RuntimeError(".env file must contain a value for \"lidar_path\"") 
-        else:
-            PATHS["chm_data"] = os.path.join(PATHS["new_project"], "chm-data")
-            os.makedirs(PATHS["chm_data"], exist_ok=True)
-
-            # Reprojecting CHM data
-            print("\nReprojecting and cropping lidar data...\n") 
-            PATHS["chm_data"] = os.path.join(PATHS["new_project"], "chm-data")
-            os.makedirs(PATHS["chm_data"], exist_ok=True)
-            output_file_reprojected = reprojectCrop.reprojectTif(lidar_path, PATHS["chm_data"], output_shp_path, resolution = 0.5)
-            PATHS["projected_lidar_data"] = os.path.join(PATHS["new_project"], "lidar-data", "projected-data")
-            os.makedirs(PATHS["projected_lidar_data"], exist_ok=True)
-
-            # Tiling 2020 x 2020
-            print(style.DARKCYAN + "\nNow tiling...\n" + style.RESET)
-            processLidarDEM.processAuxTifs(input_tif=output_file_reprojected, output_directory=PATHS["projected_lidar_data"])
-            print(style.DARKCYAN + "\n\nNow, making the LiDAR inputs for the neural network...\n\n" + style.RESET)
-            PATHS["inputs_chm"] = os.path.join(PATHS["inputs"], "chm")
-            os.makedirs(PATHS["inputs_chm"], exist_ok=True)
-            # Tiling 512 x 512
-            prepareCRSForestData.PrepareForestData(input_directory=PATHS["projected_lidar_data"], output_directory=PATHS["inputs_chm"], path_to_shapefile=output_shp_path)
+        # Tiling 2020 x 2020
+        print(style.DARKCYAN + "\nNow tiling 2020 x 2020...\n" + style.RESET)
+        processLidarDEM.processAuxTifs(input_tif=PATHS["lidar_reprojected_tif"], raw_directory=PATHS["satellite_copied_directory"], metadata_path=PATHS["site-metadata"], output_directory=PATHS["projected_lidar_data"])
+        
+        # Tiling 512 x 512
+        print(style.CYAN + "\n\nNOW MAKING THE LIDAR INPUTS FOR THE NEURAL NETWORK..." + style.RESET)
+        prepareCRSForestData.PrepareForestData(input_directory=PATHS["projected_lidar_data"], output_directory=PATHS["inputs_chm"], path_to_shapefile=PATHS["projected-shapefile"])
         
     #################################### SENSOR & SOLAR DATA ##################################
     # If sensor/solar inputs are detected, it will proceed to DATA QAQC
@@ -253,10 +252,11 @@ def main():
         print("Solar and sensor data detected in inputs folder... ✅ \n")
     else:
         # This processes off-nadir angle, target azimuth, solar elevation, solar azimuth from the angle metadata
-        print("\n" + style.FOREST + "Processing solar and sensor data...." + style.RESET + "\n")
-        solar_input, sensor_input = createAnglearrays.SensorSolarAngles(output_directory=PATHS["inputs"], path_to_csv=PATHS["dg_csv_path"])
-        PATHS["inputs_solar"] = solar_input
-        PATHS["input_sensor"] = sensor_input
+        print(style.BOLD + "\n-----PROCESSING SOLAR AND SENSOR DATA-----\n" + style.RESET)
+        os.makedirs(PATHS["inputs_sensor"], exist_ok=True)
+        os.makedirs(PATHS["inputs_solar"], exist_ok=True)
+        solar_input=PATHS["inputs_solar"], sensor_input= PATHS["inputs_sensor"] = createAnglearrays.SensorSolarAngles(output_directory=PATHS["inputs"], path_to_csv=PATHS["angle_metadata"])
+    
     #################################### DATA QAQC #############################################
     # Data QAQC happens every time regardless if it has happened before
     print("-" * w)
