@@ -2,7 +2,7 @@
 
 # Motivation
 
-These are the required inputs to use **SatCHM**, followed by the output:
+These are the required inputs to use **SatCHM**:
 
 ![Alt text](pictures/inputs.png)
 
@@ -60,14 +60,25 @@ Download from [PyTorch Get Started Locally](https://pytorch.org/get-started/loca
 
 ## Getting Started
 
+### Tutorial Data
+
  Throughout the documentation, we will be using the project 'caldor' as an example. Caldor references the Caldor Fire of 2021, south of Lake Tahoe, California. All satellite images were taken before this fire occured. The worldview satellite images were downloaded from Vantor (formerly Maxar Intelligence). Airborne lidar data of south Lake Tahoe was collected in 2010 and was downloaded from [NASA Earthdata](https://www.earthdata.nasa.gov/data/catalog/ornl-cloud-cms-lidar-agb-california-1537-1#toc-product-summary). 
 
 <div align="center">
-<img src="pictures/caldor.png" width="700" height="500">
+<img src="pictures/caldor_burn_boundary.png" width="1560" height="1390">
 </div>
 
 #### To download tutorial data, following these instructions:
 
+(1) Download [Pelican]("https://docs.pelicanplatform.org/install"). Pelican is an open-source data repository platform.
+
+(2) Run the Pelican download command in terminal. Navigate to your preferred destitation. 
+
+```
+(satchmenv) mia /mnt/c/Users/miashell/Documents >  pelican object sync pelican://osg-htc.org/ndp/public/LANLCHM/ ./LANLCHM/
+```
+
+### Creating .env file
 Create a .env file where the repo is located. Edit the file in a text editor.
 
 
@@ -95,7 +106,7 @@ satellite_download_dir=/mnt/c/Users/miashell/Documents/LANLCHM/satellite_data
 angle_metadata=/mnt/c/Users/miashell/Documents/LANLCHM/angle-metadata.csv
 
 ```
-Document the appropriate paths and directories in the <strong><span style="color:#33484D">.env</span></strong> before running the program.
+Document the appropriate paths and directories in the .env before running the program. A blank template for angle metadata csv is included in this repo. If using the tutorial data, the angle metadata is located in the data repository.
 
 If you are using your own imagery, [see additional details here](./docs/OWNIMAGERY.md) and place your imagery in the **satellite_download_dir** specified in your .env. 
 
@@ -105,42 +116,114 @@ If you are using your own imagery, [see additional details here](./docs/OWNIMAGE
 
 After creating the .env, run main.
 ```console
-(satchmenv) mia > python main.py
+(satchmenv) mia /mnt/c/Users/miashell/Documents/CHM-MS-net-Canopy-Height-Model > python main.py
 
 
 SatCHM... 🌳
 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------
 
 Project Directory: /mnt/c/Users/miashell/Documents/caldor_run
 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------
 
 -----SHAPEFILE SELECTION-----
 
 Using shapefile "caldor_wgs84.shp" in /mnt/c/Users/miashell/Documents/LANLCHM/wgs84_caldor
 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------
 
------PROCESSING INPUT DATA-----
+-----PREPROCESSING BEGINS (THIS TAKES A WHILE)-----
 
-Processing the satellite imagery...
+------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------
 
+-----PROCESSING SATELLITE DATA-----
 
+```
+### Making Directories
+
+```
 Making directories based on metadata...
+```
+
+
+
+### Tiling satellite imagery, DEMs, and lidar data
+Satellite imagery, the digital elevation models (DEMs), Lidar-produced canopy height models (CHMs) will first be tiled to 2020 x 2020 pixels  and subsequently tiled into 512 x 512 pixel inputs for the neural network. All data is resampled to 0.5 m -- therefore each final input GeoTIFF spatially translates to 256 x 256 meters. Since there are multiple satellite GeoTIFFs, they are merged before tiling unlike the DEMs and CHMs. 
+
+<div align="center">
+<img src="pictures/partition.png">
+</div>
+
+Site and date of acquitistion (YYYY-MM-DD) are included in the file name. Moreover, the naming convention of each file is based on the easting and northing (rounded to the nearest thousand) in the southwest corner of the first partition. Subsequently, the GeoTIFF is partitioned into sixteenths and named according to the diagram above. 
+
+  <div style="text-align:center">
+    site _ YYYY-MM-DD _ easting<sub>0</sub> _ northing<sub>0</sub>_ xx _ xx </div>
+  </div>
+
+ ---
+<br>
+
+```
+Now tiling 2020 x 2020...
+                                                                                                                                               
+
+Working on chunk: caldor
+
+Chunk subfolders: ['caldor.2_2015-08-05', 'caldor.2_2017-06-14', 'caldor_2011-09-05', 'caldor_2015-08-05', 'caldor_2016-06-24', 'caldor_2016-08-24', 'caldor_2017-06-14']
+
+Merging caldor.2_2015-08-05.                                                                                                                    
+                                                                                                                                                
+Working on images from caldor.2_2015-08-05...                                                                                                   
+
+Merging caldor.2_2017-06-14.                                                                                                                    
+Processing easting=765966, northing=4308659: 100%|██████████████████████████████████████████████████████| 2457/2457 [1:28:44<00:00,  2.17s/tile]
+                                                                                                                                                
+Working on images from caldor.2_2017-06-14...                                                                        | 0/2457 [00:00<?, ?tile/s]
+                                                                                                                                                
+Merging caldor_2011-09-05.                                                                                                                      
+Processing easting=765966, northing=4308659: 100%|██████████████████████████████████████████████████████| 2457/2457 [1:57:11<00:00,  2.86s/tile]
+                                                                                                                                                
+Working on images from caldor_2011-09-05...                                                                                                     
+
+Merging caldor_2015-08-05.                                                                                                                      
+Processing easting=765966, northing=4308659: 100%|██████████████████████████████████████████████████████| 2457/2457 [1:57:41<00:00,  2.87s/tile]
+                                                                                                                                                
+Working on images from caldor_2015-08-05...                                                                          | 0/2457 [00:00<?, ?tile/s]
+                                                                                                                                                
+Merging caldor_2016-06-24.                                                                                                                      
+Processing easting=765966, northing=4308659: 100%|██████████████████████████████████████████████████████| 2457/2457 [2:00:40<00:00,  2.95s/tile]
+                                                                                                                                                
+Working on images from caldor_2016-06-24...                                                                                                     
+
+Merging caldor_2016-08-24.                                                                                                                      
+Processing easting=765966, northing=4308659: 100%|██████████████████████████████████████████████████████| 2457/2457 [2:27:15<00:00,  3.60s/tile]
+                                                                                                                                                
+Working on images from caldor_2016-08-24...                                                                          | 0/2457 [00:00<?, ?tile/s]
+                                                                                                                                                
+Merging caldor_2017-06-14.                                                                                                                      
+Processing easting=765966, northing=4308659: 100%|██████████████████████████████████████████████████████| 2457/2457 [2:31:42<00:00,  3.70s/tile]
+                                                                                                                                                
+Working on images from caldor_2017-06-14...                                                                                                     
+
+Finished creating  2020 x 2020 tiles for the satellite imagery...                                                                               
+
+NOW MAKING THE SATELLITE INPUTS FOR THE NEURAL NETWORK...
+
+Processing tiles:  75%|█████████████████████████████████████████████████████████▌                   | 12856/17200 [2:22:22<1:07:31,  1.07tile/s]
 
 ```
 <br>
 
-(1) Talk about the tree aspect
+### Creating sensor and solar look angles
 
-(2) How it is making 
+
+
+
 
 ---
 
-Afterwards, proceed [here](./docs/PROCESSING.md) to obtain detailed instruction about preprocessing, utilizing the neural network, and post processing steps.
-
-<br>
 
 ## Authors
 
