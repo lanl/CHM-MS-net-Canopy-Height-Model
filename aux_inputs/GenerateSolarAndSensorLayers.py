@@ -145,13 +145,12 @@ def SensorSolarAngles(output_directory, path_to_csv):
 
         datetxt = pd.to_datetime(wvsummary['date'][i])
         datetxt = datetxt.strftime('%Y-%m-%d')
-        cell = str(wvsummary["cell"][i])
         sensor =  wvsummary['sensor'][i]
-        match = re.fullmatch(r"wv0(\d+)-(\d+)", sensor)
+        match = re.fullmatch(r"(\w+)-(\w+)", sensor)
         if match:
-            filename = wvsummary['site'][i] + f'{cell}' + ('.' + match.group(2) if match.group(2) else '') + '_' + datetxt
+            filename = wvsummary['site'][i] + ('.' + match.group(2) if match.group(2) else '') + '_' + datetxt
         else:
-            filename = wvsummary['site'][i] + f'{cell}' + '_' + datetxt
+            filename = wvsummary['site'][i] + '_' + datetxt
 
 
         Image.fromarray(solarNormal).save(os.path.join(output_directory, "solar", filename + '.tif')) 
