@@ -127,7 +127,7 @@ def main():
         satellite_metadata_no_header = pd.read_csv((angle_metadata), header=0)
         if satellite_metadata_no_header.shape[0] == 0: 
             raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.") 
-        required_columns = ["site", "date", "id", "sensor", "targetazimuth", "offnadir", "solarazimuth", "solarelevation"]
+        required_columns = ["site", "date", "sensor", "targetazimuth", "offnadir", "solarazimuth", "solarelevation"]
         satellite_metadata_header = satellite_metadata.columns.tolist()
         if not all(item in satellite_metadata_header for item in required_columns):
             raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.")
