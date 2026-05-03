@@ -247,9 +247,14 @@ def main():
         prepareCRSForestData.PrepareForestData(input_directory=PATHS["projected_lidar_data"], output_directory=PATHS["inputs_chm"], path_to_shapefile=PATHS["projected-shapefile"])
         
     #################################### SENSOR & SOLAR DATA ##################################
-    # If sensor/solar inputs are detected, it will proceed to DATA QAQC
-    if os.path.isdir(os.path.join(PATHS["inputs"], "solar")) and has_tif_files(os.path.join(PATHS["inputs"], "solar")) and os.path.isdir(os.path.join(PATHS["inputs"], "sensor")) and has_tif_files(os.path.join(PATHS["inputs"], "sensor")) :
-        print("Solar and sensor data detected in inputs folder... ✅ \n")
+    # Path creation for sensor and solar inputs
+    PATHS["inputs_solar"] = os.path.join(PATHS["inputs"], "solar")
+    PATHS["inputs_sensor"] = os.path.join(PATHS["inputs"], "sensor")
+    print("-" * w)
+
+    # If sensor/solar inputs are detected, it will proceed to DATA QAQC, otherwise it will create solar and sensor data
+    if os.path.isdir(PATHS["inputs_solar"]) and has_tif_files(PATHS["inputs_solar"]) and os.path.isdir(PATHS["inputs_sensor"]) and has_tif_files(PATHS["inputs_sensor"]):
+        print("Solar and sensor data detected in inputs folder... ✅")
     else:
         # This processes off-nadir angle, target azimuth, solar elevation, solar azimuth from the angle metadata
         print(style.BOLD + "\n-----PROCESSING SOLAR AND SENSOR DATA-----\n" + style.RESET)
@@ -263,9 +268,14 @@ def main():
     print(style.BOLD + "\n-----QAQC-----\n" + style.RESET)
     print(style.FOREST + "Checking if all data inputs are satisfactory..." + style.RESET) 
     
-    # Checks if CHM data, specifically contains alot of NAN values or 0s
-    tif_qaqc(os.path.join(PATHS["inputs"], "chm"))
-
+    # Checks if lidar, dem, and satellite data, specifically contains alot of NAN values or 0s
+    print("\nQAQC: Satellite Data...")
+    tif_qaqc(PATHS["inputs_wvimg"])
+    print("\nQAQC: DEM Data...")
+    tif_qaqc(PATHS["inputs_dem"])
+    print("\nQAQC: Lidar Data...")
+    tif_qaqc(PATHS["inputs_chm"])
+    
     # Removes files like ._{filename} or *.xml from all directories
     print("\nRemoving possible non-TIF file artifacts in all input folders...\n")
     delete_non_tif(PATHS["inputs_chm"])
@@ -277,7 +287,11 @@ def main():
     #################################### CALCULATE BOUNDS #######################################
     print("-" * w)
     print(style.BOLD + "\n-----PROCESSING INPUT METADATA-----\n" + style.RESET)
+
     output_bounds_json = os.path.join(PATHS["inputs"], "bounds.json")
+    PATHS["output_bounds_json"] = output_bounds_json
+
+    # If bounds are already created, then this will be skipped
     if os.path.exists(output_bounds_json):
         print("Bounds are already saved...✅ \n")
     else:
@@ -288,13 +302,17 @@ def main():
 
     ##################################### MATCHING KEYS #####################################
     # If inputs are already renamed, then this will be skipped. 
-    if os.path.exists(os.path.join(PATHS["inputs"],"dem.json")) and os.path.exists(os.path.join(PATHS["inputs"],"chm.json")):
+    print("-" * w)
+    PATHS["dem_json"] = os.path.join(PATHS["inputs"],"dem.json") 
+    PATHS["chm_json"] = os.path.join(PATHS["inputs"],"chm.json")
+
+    if os.path.exists(PATHS["dem_json"]) and os.path.exists(PATHS["chm_json"]):
         print("Inputs are already renamed... ✅ \n")
     else:
         # Match keys for dem & chm, makes sure files are the same
         print(style.FOREST + "Renaming and structuring inputs for ms-net...\n" + style.RESET)
-        matchkeys.matchKeys('dem')
-        matchkeys.matchKeys('chm')
+        matchkeys.matchKeys(data_type ="dem")
+        matchkeys.matchKeys(data_type = "chm")
  
     ##################################### TRAINING, TESTING, & VALIDATION ##################################
     print("-" * w)
