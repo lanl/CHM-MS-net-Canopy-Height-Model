@@ -268,11 +268,11 @@ def main():
 
     # Removes files like ._{filename} or *.xml from all directories
     print("\nRemoving possible non-TIF file artifacts in all input folders...\n")
-    delete_non_tif(os.path.join(PATHS["inputs"], "chm"))
-    delete_non_tif(os.path.join(PATHS["inputs"], "solar"))
-    delete_non_tif(os.path.join(PATHS["inputs"], "sensor"))
-    delete_non_tif(os.path.join(PATHS["inputs"], "wvimg"))
-    delete_non_tif(os.path.join(PATHS["inputs"], "dem"))
+    delete_non_tif(PATHS["inputs_chm"])
+    delete_non_tif(PATHS["inputs_solar"])
+    delete_non_tif(PATHS["inputs_sensor"])
+    delete_non_tif(PATHS["inputs_wvimg"])
+    delete_non_tif(PATHS["inputs_dem"])
 
     #################################### CALCULATE BOUNDS #######################################
     # If bounds are already created, then this will be skipped
@@ -284,8 +284,8 @@ def main():
     else:
         # Bounding boxes for each 512 x 512 wvimg tile are saved in the bounds.json file (to be applied to predictions later)
         print(style.FOREST + "Saving the bounds for satellite imagery...\n" + style.RESET)
-        output_bounds_json = os.path.join(PATHS["inputs"], "bounds.json")
-        calculating_wvimg_bounds(directory = os.path.join(PATHS["inputs"], "wvimg"), output_json=output_bounds_json)
+        os.makedirs(PATHS["output_bounds_json"], exist_ok=True)
+        calculating_wvimg_bounds(directory = PATHS["inputs_wvimg"], output_json=PATHS["output_bounds_json"])
 
     ##################################### MATCHING KEYS #####################################
     # If inputs are already renamed, then this will be skipped. 
