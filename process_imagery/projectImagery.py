@@ -94,10 +94,6 @@ def projectSatelliteImagery(raw_directory, angle_metadata, site_metadata):
             
         """
         metadata = pd.read_csv(input_path)
-        if "chunk bounds" in metadata["chunk_or_whole"].values:
-            metadata = metadata[metadata["chunk_or_whole"] != "whole bounds"]
-        else:
-            print("chunk == whole_bounds\n")
         metadata = metadata.dropna(subset=["name", "e0", "e1", "n0", "n1", "utm_code"])
         site_data = {}
         for _, row in metadata.iterrows():
@@ -108,7 +104,7 @@ def projectSatelliteImagery(raw_directory, angle_metadata, site_metadata):
         return site_data
 
     chunk_folders = [f for f in os.listdir(raw_directory) if os.path.isdir(os.path.join(raw_directory, f)) and f not in [".DS_Store", "projected-data"]]
-    print("\nTotal chunks:", chunk_folders)
+    #print("\nTotal chunks:", chunk_folders)
     
     # Creating projected-data folder
     projected_data_directory = os.path.join(raw_directory, 'projected-data')
@@ -132,12 +128,24 @@ def projectSatelliteImagery(raw_directory, angle_metadata, site_metadata):
         tif_files = []
         for folder in subsub_folders:
             folder_path = os.path.join(chunk_path, folder)
-            tif_files = find_folder(folder_path) 
+            tif_files.extend(find_folder(folder_path))
+
+            for tif in tif_files:
+                with rasterio.open(tif) as src:
+                    if src.crs.to_string() != utm:
+                        tmp = tif.replace(".TIF", "_tmp_reproj.TIF")
+                        reproj_cmd = f"gdalwarp -t_srs {utm} {tif} {tmp} -overwrite"
+                        result = subprocess.run(reproj_cmd.split(" "), capture_output=True, text=True)
+                        if result.returncode != 0:
+                            raise RuntimeError(f"gdalwarp reprojection failed for {tif}:\n{result.stderr}")
+                        # picks up the reprojected versions
+                        os.replace(tmp, tif)
+
             outdir = os.path.join(projected_data_directory, chunk)
             merged_tif_path = os.path.join(projected_data_directory, chunk, "merged_temp.tif")
             if os.path.exists(merged_tif_path):
                 os.remove(merged_tif_path)
-            chunk_pbar.write(f"Merging {chunk}.")
+            chunk_pbar.write(f"Merging {folder}.")
             mrg_cmd = f"rio merge {' '.join(tif_files)} {merged_tif_path}"
 
             result = subprocess.run(
@@ -150,6 +158,7 @@ def projectSatelliteImagery(raw_directory, angle_metadata, site_metadata):
                                         f"{result.stdout}"
                                         "\n\nSTDERR:\n\n"
                                         f"{result.stderr}\n\n")
+            
             # Getting site data
             site_data = getting_site_information(site_metadata)
             dataframe = site_data.get(chunk)
