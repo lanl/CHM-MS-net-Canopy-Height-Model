@@ -134,51 +134,33 @@ def main():
         if satellite_metadata.isnull().values.any(): 
                 raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.") 
  
-        ## Checking if GeoTIFF data is correctly placed in the satellite_imagery_download_directory
-        print("\nMaking directories based on metadata...\n")
-        manageDirectories.setup_dirs(raw_directory= PATHS["satellite_directory"], csv_file=angle_metadata, site=site)
-        folders_in_satellite = [f for f in os.listdir(satellite_imagery_download_directory) if f != ".DS_Store"]
-        print(style.BOLD + "\n-----PROCESSING BEGINS (THIS TAKES A WHILE)----\n" + style.RESET)
+        # Checking if GeoTIFF data is correctly placed in the satellite_imagery_download_directory
+        print("\nMaking directories based on metadata...")
+        manageDirectories.setup_dirs(raw_directory= PATHS["satellite_copied_directory"], csv_file=PATHS["angle_metadata"], site=site)
+        folders_in_satellite = [f for f in os.listdir(PATHS["satellite_raw_directory"]) if f != ".DS_Store"]
 
         # Checks if GeoTIFF files exist in the folders
         tif_found = False
-        for root, _, files in os.walk(satellite_imagery_download_directory):
+        for root, _, files in os.walk(PATHS["satellite_raw_directory"]):
             if any(file.lower().endswith(('.tif', '.tiff')) for file in files):
                 tif_found = True
                 break # closes loop
         if not tif_found:
             raise RuntimeError(f"GeoTIFF files are not found in the {satellite_imagery_download_directory}. Please unpack your data here and rerun the program.")
-            
-        ## Checking if GeoTIFF data is correctly placed in the satellite_imagery_download_directory
-        print("\nMaking directories based on metadata...\n")
-        manageDirectories.setup_dirs(raw_directory= PATHS["satellite_directory"], csv_file=angle_metadata, site=site)
-        folders_in_nonDG = [f for f in os.listdir(satellite_imagery_download_directory) if f != ".DS_Store"]
 
-        print(style.BOLD + "\n-----PROCESSING BEGINS (THIS TAKES A WHILE)----\n" + style.RESET)
-        for folder in folders_in_nonDG: # folder (e.g. caldor_2012-03-19_wv02_05090939090)
-            parts = folder.split("_") 
-            main_folder = parts[0] # main_folder = caldor
-
-            src_path = os.path.join(satellite_imagery_download_directory, folder) # source path from satellite_imagery_download_directory
-            dst_main_folder = os.path.join(PATHS["satellite_directory"], main_folder) 
-            # main folder is being created
+        #   
+        for folder in folders_in_satellite:  # folder (e.g. caldor_2012-03-19_wv02_05090939090)
+            parts = folder.split("_")
+            main_folder = parts[0]  # main_folder = caldor
+            src_path = os.path.join(PATHS["satellite_raw_directory"], folder)
+            dst_main_folder = os.path.join(PATHS["satellite_copied_directory"], main_folder)
             os.makedirs(dst_main_folder, exist_ok=True)
-    
-            # If .zip files and GeoTIFF files were found in those unzipped folders, then proceed to process the data 
-            if tif_found==True and zip_found==True:
-                    if os.path.isdir(src_path) and not os.path.exists(dst_subfolder):
-                        shutil.copytree(src_path, dst_subfolder)
 
-            # If .zip files weren't found but GeoTIFF files, then proceed to process the data 
-            if tif_found==True and zip_found==False:
-                for subfolder in os.listdir(src_path): # go over each subfolder inside
-                    src_subfolder = os.path.join(src_path, subfolder)
-                    dst_subfolder = os.path.join(dst_main_folder, subfolder)
-                    if os.path.isdir(src_subfolder) and not os.path.exists(dst_subfolder):
-                        shutil.copytree(src_subfolder, dst_subfolder)
-            else:
-                if os.path.isdir(src_path) and not os.path.exists(dst_subfolder):
-                        shutil.copytree(src_path, dst_subfolder)
+            for subfolder in os.listdir(src_path):
+                src_subfolder = os.path.join(src_path, subfolder)
+                dst_subfolder = os.path.join(dst_main_folder, subfolder)
+                if os.path.isdir(src_subfolder):
+                    shutil.copytree(src_subfolder, dst_subfolder, dirs_exist_ok=True)
 
         # Tiling in 2020 x 2020
         print(style.DARKCYAN + "\nNow tiling 2020 x 2020..." + style.RESET)
@@ -186,7 +168,8 @@ def main():
         PATHS["satellite_projected_directory"] = projected_data_directory 
 
         # Tiling in 512 x 512
-        prepareCRSForestData.PrepareForestData(input_directory=PATHS["projected_satellite_data"], output_directory=PATHS["inputs_wvimg"], path_to_shapefile=PATHS["projected-shapefile"])
+        print(style.CYAN + "\n\nNOW MAKING THE SATELLITE INPUTS FOR THE NEURAL NETWORK..." + style.RESET)
+        prepareCRSForestData.PrepareForestData(input_directory=PATHS["satellite_projected_directory"], output_directory=PATHS["inputs_wvimg"], path_to_shapefile=PATHS["projected-shapefile"])
 
     ###################################### DEM DATA ##########################################
     # Path creation for DEM data outputs
