@@ -11,6 +11,7 @@ This script reprojects and crops lidar data and digital elevation models (DEM) i
 import os
 import subprocess
 import argparse
+from tqdm import tqdm
 from dotenv import load_dotenv, find_dotenv
 
 def reprojectTif(input_file, output_dir, site_shapefile_path, resolution):
@@ -37,14 +38,12 @@ def reprojectTif(input_file, output_dir, site_shapefile_path, resolution):
     # Pulled from the .env 
     env_path = find_dotenv()
     load_dotenv(env_path)
-    # TODO: unused project_directory = os.getenv('project_path')
     utm = os.getenv("utm")
     site = os.getenv("site")
 
     # Reprojecting 
     output_file_reprojected = os.path.join(output_dir, f"{site}_reprojected.tif")
 
-    
     reproj_cmd = [
     "gdalwarp",
     "-overwrite",
@@ -57,35 +56,13 @@ def reprojectTif(input_file, output_dir, site_shapefile_path, resolution):
 
     print(f"\nReprojecting {os.path.split(input_file)[-1]}...\n")
     reproj_process = subprocess.Popen(reproj_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    for line in reproj_process.stdout:
-        print(line, end="") # Progress Bar
+   
+    # Progress Bar
+    with tqdm(unit="lines", desc="Processing", bar_format="{l_bar}{bar}| {n_fmt} lines") as pbar:
+        for line in reproj_process.stdout:
+            pbar.update(1)
+            pbar.set_postfix_str(line.strip()[:40]) 
         
-    """
-    output_file_cropped = os.path.join(output_dir, f"{site}_cropped.tif")
-
-    # Cropping to specific site polygon 
-    polygon_path = site_shapefile_path
-    # TODO: unused polygon = gpd.read_file(polygon_path)
-
-    if not os.path.exists(polygon_path):
-        raise RuntimeError(f"{polygon_path} does not exist")
-
-    crop_cmd = [
-        "gdalwarp",
-        "-overwrite",
-        "-cutline",
-        f"{polygon_path}",
-        "-crop_to_cutline",
-        "-tr", f"{resolution}", f"{resolution}",
-        f"{output_file_reprojected}",
-        f"{output_file_cropped}"]
-
-    
-    print(f"\nCropping {os.path.split(output_file_cropped)[-1]}...\n")
-    crop_process = subprocess.Popen(crop_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    for line in crop_process.stdout:
-        print(line, end="") # progress bar
-    """
     return output_file_reprojected
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Reprojects and crops a GeoTIFF file based on UTM listed in .env to the projected shapefile provided')

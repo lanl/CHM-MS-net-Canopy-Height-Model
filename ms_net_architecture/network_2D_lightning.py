@@ -453,7 +453,7 @@ class MS_Net(LightningModule):
 
         """
         return Adam(self.parameters(), lr=self.lr)
-        # this is where you would add learning rate scheduler (they haven't set up the scheduler) 
+        # this is where you would add learning rate scheduler
 
     def test(self, masks, x1, x2):
         """

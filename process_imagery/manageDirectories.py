@@ -63,12 +63,11 @@ class Manager:
         """
         df = pd.read_csv(csv_file)
         main_folder_paths = {}
-        for _, row in combinations.iterrows():
+        for _, row in df.iterrows():
             site = row['site']
             folder_name = f"{site}"
             folder_path_main = os.path.join(self.base_path, folder_name)
             os.makedirs(folder_path_main, exist_ok=True)
-            #print(f"Created folder: {folder_path_main}")
             main_folder_paths[folder_name] = folder_path_main
         return main_folder_paths
     def create_subfolders(self, csv_file, main_folder_paths):
@@ -100,7 +99,7 @@ class Manager:
                 else:
                     subfolder_name = site + '_' + date
 
-                main_folder = f"{site}
+                main_folder = f"{site}"
                 if main_folder in main_folder_paths:
                     subfolder_path = os.path.join(main_folder_paths[main_folder], subfolder_name)
                     os.makedirs(subfolder_path, exist_ok=True)

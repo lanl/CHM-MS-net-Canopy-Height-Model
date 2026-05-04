@@ -59,7 +59,7 @@ Coarse digital elevation models (at most 30 meters resolution) will be upsampled
 
 ![Alt text](/pictures/chm_division.png)
 
-LiDAR-produced canopy height models (at minimum 0.5-0.6 meters), used in backpropagation during training, will be upsampled to 0.5 meters.
+LiDAR-produced canopy height models (at minimum 0.5-0.6 meters) will be upsampled to 0.5 meters.
 
  ---
 

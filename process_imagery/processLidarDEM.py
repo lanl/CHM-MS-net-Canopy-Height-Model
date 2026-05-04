@@ -20,8 +20,7 @@ import numpy as np
 from tqdm import tqdm
 from dotenv import load_dotenv, find_dotenv
 
-
-def processAuxTifs(input_tif, output_directory):
+def processAuxTifs(raw_directory, metadata_path, input_tif, output_directory):
     """
     Description
     ___________
@@ -29,50 +28,63 @@ def processAuxTifs(input_tif, output_directory):
 
     Parameters
     __________
+
+    metadata_path : str
+        The path to the site_metadata.csv
     input_tif : str
         The input .tif file being processed
     output_directory : str
         The output directory for the file being processed
     """
-    dotenv_path = find_dotenv()
-    load_dotenv(dotenv_path)
-    directory = os.getenv("project_path")
 
-    metadata_path = os.path.join(directory, "metadata", "site-metadata.csv")
-    metadata = pd.read_csv(metadata_path)
-    chunks = []
+    def getting_site_information(metadata_path):
+        """
+        Description
+        ___________
+        This function reads a CSV and processes the data to extract site-specific information
+        
+        Parameters
+        __________
+        metadata_path : str
+            The path to the site_metadata.csv
 
-    if "chunk bounds" in metadata["chunk_or_whole"].values:
-        metadata = metadata[metadata["chunk_or_whole"] == "chunk bounds"]
-    else:
-        metadata = metadata[metadata["chunk_or_whole"] == "whole bounds"]
-
-    for _, row in metadata.iterrows():
-        name = row["name"]
-        if name not in chunks:
-            chunks.append(name)
-
-    print("\nTotal chunks:", chunks)
-
-    # get site data
-    def getting_site_information(metadata_path, chunk):
+        Returns
+        _______
+        
+        dict
+            The `site_data` dictionary, where the keys are the site names, and the values are dictionaries containing the spatial and coordinate information for each site.
+            
+        """
         metadata = pd.read_csv(metadata_path)
-        metadata = metadata.dropna(
-            subset=["name", "e0", "e1", "n0", "n1", "utm_code", "chunk_or_whole"]
-        )
-        parsed = metadata[metadata["name"] == f"{chunk}"]
-        name = f"{chunk}"
-        e0, e1, n0, n1 = (
-            parsed["e0"].iloc[0],
-            parsed["e1"].iloc[0],
-            parsed["n0"].iloc[0],
-            parsed["n1"].iloc[0],
-        )
-        utmcode = parsed["utm_code"].iloc[0]
-        return e0, e1, n0, n1, utmcode, name
+        metadata = metadata.dropna(subset=["name", "e0", "e1", "n0", "n1", "utm_code"])
+        site_data = {}
+        for _, row in metadata.iterrows():
+            name = row["name"]
+            e0, e1, n0, n1 = row["e0"], row["e1"], row["n0"], row["n1"]
+            utmcode = row["utm_code"]
+            site_data[name] = {"e0": e0, "e1": e1, "n0": n0, "n1": n1, "utm_code": utmcode}
+        return site_data
 
+    
     # get raster bbox
     def get_file_bbox(file_path):
+        """
+        Description
+        ___________
+        This function gets the bounding box of the input raster.
+
+        Parameters
+        __________
+        file_path : str
+            The path to the input raster (ends in .tiff or .tif)
+
+        Returns
+        _______
+        
+        bounds
+            xmin, ymin, xmax, ymax
+            
+        """  
         with rasterio.open(file_path) as src:
             bounds = src.bounds
         return bounds
@@ -80,22 +92,26 @@ def processAuxTifs(input_tif, output_directory):
     raster_bounds = get_file_bbox(input_tif)
     raster_geom = box(*raster_bounds)
 
+    chunks = [f for f in os.listdir(raw_directory) if os.path.isdir(os.path.join(raw_directory, f)) and f not in [".DS_Store", "projected-data"]]
     chunk_pbar = tqdm(chunks, desc="Processing chunks", unit="chunk")  
-    for c in chunks:
-        e0, e1, n0, n1, utmcode, name = getting_site_information(metadata_path, c)
-        chunk_pbar.set_description(f"Working on site: {c}")
+
+    for chunk in chunks:
+        chunk_pbar.set_description(f"Working on site: {chunks}")
+        site_data = getting_site_information(metadata_path)
+        dataframe = site_data.get(chunk)
+        e0, e1, n0, n1 = int(dataframe["e0"]), int(dataframe["e1"]), int(dataframe["n0"]), int(dataframe["n1"])
+        utmcode = dataframe["utm_code"]
         eLL = range(int(e0), int(e1), 1000)
         nLL = range(int(n0), int(n1), 1000)
         total_iterations = len(eLL) * len(nLL)
 
-        #print(f"\n\nOutput directory: {output_directory}\n\n")
         tile_pbar = tqdm(
             total=total_iterations,
             desc="Processing tiles",
             unit="tile",
             leave=False,
         )
-        
+
         for e in eLL:
             for n in nLL:
                 sqkm = str(e)[:3] + "_" + str(n)[:4]
@@ -158,9 +174,14 @@ def processAuxTifs(input_tif, output_directory):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Projecting a GeoTIFF into 1010 x 1010 tiles')
-
-    parser.add_argument('--input_tif', type=str, help='Path to the projected GeoTIFF')
-    parser.add_argument('--output_directory', type=str, help='Path to the output directory for the the tiled GeoTIFFs')
+    parser.add_argument('--raw_directory', type=str, required=True,
+                        help='Path to the directory containing the raw satellite imagery')
+    parser.add_argument('--input_tif', type=str, required=True,
+                        help='Path to the projected GeoTIFF')
+    parser.add_argument('--metadata_path', type=str, required=True,
+                        help='Path to the file containing the site metadata')
+    parser.add_argument('--output_directory', type=str, required=True, 
+                        help='Path to the output directory for the the tiled GeoTIFFs')
 
     args = parser.parse_args()
 

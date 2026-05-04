@@ -44,7 +44,7 @@ def parse_args():
     parser.add_argument("--net_name",    default="CHMer", type=str)  
     # Name of the neural network
     parser.add_argument("--num_scales",  default=3, type=int)            
-    # Number of scales (e.g., multi-scale architecture)
+    # Number of scales (multi-scale architecture)
     parser.add_argument("--num_filters", default=2, type=int)             
     # Number of filters in each convolutional layer
     parser.add_argument("--f_mult",      default=4, type=int)             
@@ -83,17 +83,17 @@ def parse_args():
     # Proportion of data to use for validation
     parser.add_argument("--data_aug", default=False, type=str2bool)    
     # Apply data augmentation
-    parser.add_argument("--data_loc", default='../new_dataset/stupid/data_loc', type=str)  
+    parser.add_argument("--data_loc", default='new_dataset', type=str)  
     # Path to dataset location
 
     # SYSTEM CONFIGS
-    # Sets the random seed for reproducibility. A consistent seed ensures that the random operations (like dataset shuffling, model initialization, etc.) will produce the same results every time the code is run.
+    # Sets the random seed for reproducibility. A consistent seed ensures that the random operations will produce the same results every time the code is run.
     parser.add_argument("--seed", type=int)
     #Specifies the number of GPUs to use for training. Default is set to 2, meaning the script is configured to utilize 2 GPUs for training. If the machine doesn't have GPUs (checked later in the script), this will be set to None.
     parser.add_argument("--gpus", default=2, type=int)
     # Defines the number of worker threads for data loading. More workers mean faster data loading because multiple threads are used to read the data in parallel. Default is 4.
     parser.add_argument("--num_workers", default=4, type=int)
-    #  Used for multi-node training (common in distributed training). By default, only one node (1) is used, but this could be increased for distributed setups where multiple machines are working together
+    #  Used for multi-node training. By default, only one node is used, but this could be increased for distributed setups where multiple machines are working together
     parser.add_argument("--num_nodes", default=1, type=int)
 
     args = parser.parse_args()

@@ -57,6 +57,7 @@ def main():
         raise RuntimeError(f".env file must contain a value for {dem_path}") 
     if not dem_path.lower().endswith((".tif", ".tiff")):
         raise RuntimeError(f"dem path must end with .tif: {dem_path}")
+    PATHS["dem_raw_path"] = dem_path
 
     lidar_path = os.getenv("lidar_path")
     lidar_path = lidar_path.strip()
@@ -64,11 +65,13 @@ def main():
         raise RuntimeError(f".env file must contain a value for {lidar_path}") 
     if not lidar_path.lower().endswith((".tif", ".tiff")):
         raise RuntimeError(f"lidar path must end with .tif: {lidar_path}")
+    PATHS["lidar_raw_path"] =  lidar_path
     
     satellite_imagery_download_directory = os.getenv('satellite_download_dir')
     satellite_imagery_download_directory = satellite_imagery_download_directory.strip()
     if satellite_imagery_download_directory== '':
         raise RuntimeError(f".env file must contain a value for {satellite_download_dir}") 
+    PATHS["satellite_raw_directory"] = satellite_imagery_download_directory
 
     angle_metadata = os.getenv("angle_metadata")
     angle_metadata = angle_metadata.strip()
@@ -76,6 +79,7 @@ def main():
         raise RuntimeError(f".env file must contain a value for {angle_metadata}") 
     if not angle_metadata.lower().endswith((".csv")):
         raise RuntimeError(f"angle_metadata path must end with .csv: {angle_metadata}")
+    PATHS["angle_metadata"] = angle_metadata
     
     print("-" * w)
     print(style.BOLD + "\n-----SHAPEFILE SELECTION-----\n" + style.RESET)
@@ -84,7 +88,6 @@ def main():
     site_shapefile_path=os.getenv('site_shapefile_dir')
     if site_shapefile_path == '':
         raise RuntimeError(f".env file must contain a value for {site_shapefile_path}") 
-    
     # Searching for .shp file in the site_shapefile_path provided in .env
     shapefile_name = None
     for filename in os.listdir(site_shapefile_path):
@@ -94,240 +97,215 @@ def main():
             print(f"Using shapefile \"{filename}\" in {site_shapefile_path}\n")
     if shapefile_name is None:
         raise RuntimeError(f"No shapefile (.shp extension) found in {site_shapefile_path}")
+    PATHS["site_shapefile_path"] = site_shapefile_path
 
     # This script (reprojectPolygon.py) reprojects the shp file into UTM and saves the metadata about the site's bounding box into a csv                  
     output_shp_path, output_csv_path = reprojpoly.reproject_shapefile(shapefile_path)
     PATHS["site-metadata"] = output_csv_path
     PATHS["projected-shapefile"] = output_shp_path
 
-    ######################################### SATELLITE DATA ########################################
-    # If satellite (wvimg) inputs are detected, it will proceed to DEM data
     print("-" * w)
-    print(style.BOLD + "\n-----PROCESSING INPUT DATA-----\n" + style.RESET)
-    if os.path.isdir(os.path.join(PATHS["inputs"], "wvimg")) and has_tif_files(os.path.join(PATHS["inputs"], "wvimg")):
-        print("Satellite data detected in inputs folder... ✅ \n")
-    else:
-        
-        print(style.FOREST + "Processing the satellite imagery..." + style.RESET + "\n")
-        # Creating a new satellite data directory in ms-data
-        PATHS["satellite_directory"] = os.path.join(PATHS["new_project"], 'satellite-data')
-        os.makedirs(PATHS["satellite_directory"], exist_ok=True)
+    print(style.BOLD + "\n-----PREPROCESSING BEGINS (THIS TAKES A WHILE)-----\n" + style.RESET)
+    print("-" * w)
+    ######################################### SATELLITE DATA ########################################
+    # Path creation for satellite data outputs
+    PATHS["satellite_copied_directory"] = os.path.join(PATHS["new_project"], 'satellite-data')
+    PATHS["inputs_wvimg"] = os.path.join(PATHS["inputs"], "wvimg")
+    print("-" * w)
 
-        # If angle_metadata has INCORRECT header, has no header or it is blank, then a RuntimeError is raised    
-        satellite_metadata = pd.read_csv(angle_metadata)
-        satellite_metadata_no_header = pd.read_csv((angle_metadata), header=0)
+    # If satellite (wvimg) inputs are detected, it will proceed to DEM data, otherwise it will process the satellite data
+    if os.path.isdir(os.path.join(PATHS["inputs"], "wvimg")) and has_tif_files(os.path.join(PATHS["inputs"], "wvimg")):
+        print("Satellite data detected in inputs folder... ✅")
+    else:
+        print(style.BOLD + "\n-----PROCESSING SATELLITE DATA-----\n" + style.RESET)
+        os.makedirs(PATHS["satellite_copied_directory"], exist_ok=True)
+        os.makedirs(PATHS["inputs_wvimg"], exist_ok=True)
+
+        # If angle_metadata has INCORRECT header, has no header or it is blank, then a RuntimeError is raised (ADDITIONAL CHECKS)  
+        satellite_metadata = pd.read_csv(PATHS["angle_metadata"])
+        satellite_metadata_no_header = pd.read_csv((PATHS["angle_metadata"]), header=0)
         if satellite_metadata_no_header.shape[0] == 0: 
             raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.") 
-        required_columns = ["site", "date", "id", "sensor", "targetazimuth", "offnadir", "solarazimuth", "solarelevation"]
+        required_columns = ["site", "date", "sensor", "targetazimuth", "offnadir", "solarazimuth", "solarelevation"]
         satellite_metadata_header = satellite_metadata.columns.tolist()
         if not all(item in satellite_metadata_header for item in required_columns):
             raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.")
         if satellite_metadata.isnull().values.any(): 
                 raise RuntimeError(f"Metadata is not complete. Please see that all fields are complete. Rerun program afterwards.") 
-        
-        # If geotiffs (or geotiffs within zipped folders) are not found, then a RuntimeError is raised
-        zip_folders = []
-        zip_found = False
-        try:
-            for root, _, files in os.walk(satellite_imagery_download_directory):
-                    if any(file.lower().endswith('.zip') for file in files):
-                        print(".zip files have been found.")
-                        zip_found = True
-                        break # closes loop
-                    for file in files:
-                        if file.endswith('.zip'):
-                            zip_folders.append(os.path.join(root, file))
-            for folder in zip_folders:
-                unzip_and_remove(folder)
-        except:
-            print("Since .zip files not found, now looking for GeoTIFFS.")
-            pass
+ 
+        # Checking if GeoTIFF data is correctly placed in the satellite_imagery_download_directory
+        print("\nMaking directories based on metadata...")
+        manageDirectories.setup_dirs(raw_directory= PATHS["satellite_copied_directory"], csv_file=PATHS["angle_metadata"], site=site)
+        folders_in_satellite = [f for f in os.listdir(PATHS["satellite_raw_directory"]) if f != ".DS_Store"]
 
-        # Second checks if GeoTIFF files exist in the folders
+        # Checks if GeoTIFF files exist in the folders
         tif_found = False
-        for root, _, files in os.walk(satellite_imagery_download_directory):
+        for root, _, files in os.walk(PATHS["satellite_raw_directory"]):
             if any(file.lower().endswith(('.tif', '.tiff')) for file in files):
                 tif_found = True
                 break # closes loop
         if not tif_found:
             raise RuntimeError(f"GeoTIFF files are not found in the {satellite_imagery_download_directory}. Please unpack your data here and rerun the program.")
-            
-        ## Checking if GeoTIFF data is correctly placed in the satellite_imagery_download_directory
-        print("\nMaking directories based on metadata...\n")
-        manageDirectories.setup_dirs(raw_directory= PATHS["satellite_directory"], csv_file=angle_metadata, site=site)
-        folders_in_nonDG = [f for f in os.listdir(satellite_imagery_download_directory) if f != ".DS_Store"]
 
-        print(style.BOLD + "\n-----PROCESSING BEGINS (THIS TAKES A WHILE)----\n" + style.RESET)
-        for folder in folders_in_nonDG: # folder (e.g. caldor_2012-03-19_wv02_05090939090)
-            parts = folder.split("_") 
-            main_folder = parts[0] # main_folder = caldor
-
-            src_path = os.path.join(satellite_imagery_download_directory, folder) # source path from satellite_imagery_download_directory
-            dst_main_folder = os.path.join(PATHS["satellite_directory"], main_folder) 
-            # main folder is being created
+        #   
+        for folder in folders_in_satellite:  # folder (e.g. caldor_2012-03-19_wv02_05090939090)
+            parts = folder.split("_")
+            main_folder = parts[0]  # main_folder = caldor
+            src_path = os.path.join(PATHS["satellite_raw_directory"], folder)
+            dst_main_folder = os.path.join(PATHS["satellite_copied_directory"], main_folder)
             os.makedirs(dst_main_folder, exist_ok=True)
-    
-            # If .zip files and GeoTIFF files were found in those unzipped folders, then proceed to process the data 
-            if tif_found==True and zip_found==True:
-                    if os.path.isdir(src_path) and not os.path.exists(dst_subfolder):
-                        shutil.copytree(src_path, dst_subfolder)
 
-            # If .zip files weren't found but GeoTIFF files, then proceed to process the data 
-            if tif_found==True and zip_found==False:
-                for subfolder in os.listdir(src_path): # go over each subfolder inside
-                    src_subfolder = os.path.join(src_path, subfolder)
-                    dst_subfolder = os.path.join(dst_main_folder, subfolder)
-                    if os.path.isdir(src_subfolder) and not os.path.exists(dst_subfolder):
-                        shutil.copytree(src_subfolder, dst_subfolder)
-            else:
-                if os.path.isdir(src_path) and not os.path.exists(dst_subfolder):
-                        shutil.copytree(src_path, dst_subfolder)
+            for subfolder in os.listdir(src_path):
+                src_subfolder = os.path.join(src_path, subfolder)
+                dst_subfolder = os.path.join(dst_main_folder, subfolder)
+                if os.path.isdir(src_subfolder):
+                    shutil.copytree(src_subfolder, dst_subfolder, dirs_exist_ok=True)
 
-        # Tiling in 2020 x 2020       
-        projected_data_directory = projectSatelliteImagery.projectSatelliteImagery(raw_directory=PATHS["satellite_directory"], angle_metadata=PATHS["dg_csv_path"], site_metadata=PATHS["site-metadata"])
-        print("\nNow, making the satellite inputs for the neural network...\n")
-        PATHS["inputs_wvimg"] = os.path.join(PATHS["inputs"], "wvimg")
-        os.makedirs(PATHS["inputs_wvimg"], exist_ok=True)
+        # Tiling in 2020 x 2020
+        print(style.DARKCYAN + "\nNow tiling 2020 x 2020..." + style.RESET)
+        projected_data_directory = projectSatelliteImagery.projectSatelliteImagery(raw_directory=PATHS["satellite_copied_directory"], angle_metadata=PATHS["angle_metadata"], site_metadata=PATHS["site-metadata"])
+        PATHS["satellite_projected_directory"] = projected_data_directory 
+
         # Tiling in 512 x 512
-        prepareCRSForestData.PrepareForestData(input_directory=PATHS["projected_satellite_data"], output_directory=PATHS["inputs_wvimg"], path_to_shapefile=PATHS["projected-shapefile"])
+        print(style.CYAN + "\n\nNOW MAKING THE SATELLITE INPUTS FOR THE NEURAL NETWORK..." + style.RESET)
+        prepareCRSForestData.PrepareForestData(input_directory=PATHS["satellite_projected_directory"], output_directory=PATHS["inputs_wvimg"], path_to_shapefile=PATHS["projected-shapefile"])
 
     ###################################### DEM DATA ##########################################
-    # If DEM inputs are detected, it will proceed to CHM data
-    if os.path.isdir(os.path.join(PATHS["inputs"], "dem")) and has_tif_files(os.path.join(PATHS["inputs"], "dem")):
-        print("DEM data detected in inputs folder... ✅ \n")
-    else:
-        print("\n" + style.FOREST + "Processing the dem data..." + style.RESET + "\n") 
-        # This script bounding boxes of the shapefiles (if bounding boxes need to be divided into smaller cells, not print statements though)
-        generateforDG.creating_geoinfo(output_shp_path, printt=False)
-        
-        # If dem_path in .env is blank, then a RuntimeError is raised
-        if dem_path == '':
-            raise RuntimeError(".env file must contain a value for dem_path") 
-        else:
-            # Reprojecting DEM data
-            PATHS["dem_data"] = os.path.join(PATHS["new_project"], "dem-data")
-            os.makedirs(PATHS["dem_data"], exist_ok=True)
-            print("\nReprojecting and cropping DEM data...\n") 
-            output_file_reprojected = reprojectCrop.reprojectTif(dem_path, PATHS["dem_data"], output_shp_path, resolution=30)
-            PATHS["projected_dem_data"] = os.path.join(PATHS["new_project"], "dem-data", "projected-data")
-            # Making a new directory for the projected DEM data
-            os.makedirs(PATHS["projected_dem_data"], exist_ok=True)
+    # Path creation for DEM data outputs
+    PATHS["dem_data"] = os.path.join(PATHS["new_project"], "dem-data")
+    os.makedirs(PATHS["dem_data"], exist_ok=True)
+    PATHS["projected_dem_data"] = os.path.join(PATHS["new_project"], "dem-data", "projected-data")
+    os.makedirs(PATHS["projected_dem_data"], exist_ok=True)
+    PATHS["inputs_dem"] = os.path.join(PATHS["inputs"], "dem")
+    print("-" * w)
 
-            # Tiling 2020 x 2020
-            print(style.DARKCYAN + "\nNow tiling...\n" + style.RESET)
-            processLidarDEM.processAuxTifs(input_tif=output_file_reprojected, output_directory=PATHS["projected_dem_data"])
-            print(style.DARKCYAN + "Now, making the DEM inputs for the neural network..." + style.RESET)
-            PATHS["inputs_dem"] = os.path.join(PATHS["inputs"], "dem")
-            os.makedirs(PATHS["inputs_dem"], exist_ok=True)
-            # Tiling 512 x 512
-            prepareCRSForestData.PrepareForestData(input_directory=PATHS["projected_dem_data"], output_directory=PATHS["inputs_dem"], path_to_shapefile=output_shp_path) 
+     # If DEM inputs are detected, it will proceed to lidar data, otherwise it will proceed to processing dem data
+    if os.path.isdir(PATHS["inputs_dem"]) and has_tif_files(PATHS["inputs_dem"]):
+        print("DEM data detected in inputs folder... ✅")
+    else:
+        print(style.BOLD + "\n-----PROCESSING DEM DATA-----\n" + style.RESET)
+        os.makedirs(PATHS["inputs_dem"], exist_ok=True)
+
+        # Reprojecting DEM data
+        print("\nReprojecting and cropping dem data...\n") 
+        output_dem_tif_reprojected = reprojectCrop.reprojectTif(input_file=PATHS["dem_raw_path"], output_dir=PATHS["dem_data"], site_shapefile_path=PATHS["projected-shapefile"], resolution=30)
+        PATHS["dem_reprojected_tif"] = output_dem_tif_reprojected
+
+        # Tiling 2020 x 2020
+        print(style.DARKCYAN + "\nNow tiling 2020 x 2020..." + style.RESET)
+        processLidarDEM.processAuxTifs(raw_directory=PATHS["satellite_copied_directory"], metadata_path=PATHS["site-metadata"], input_tif=PATHS["dem_reprojected_tif"], output_directory=PATHS["projected_dem_data"])
+       
+        # Tiling 512 x 512
+        print(style.CYAN + "\n\nNOW MAKING THE DEM INPUTS FOR THE NEURAL NETWORK..." + style.RESET)
+        prepareCRSForestData.PrepareForestData(input_directory=PATHS["projected_dem_data"], output_directory=PATHS["inputs_dem"], path_to_shapefile=PATHS["projected-shapefile"]) 
 
     ################################## LIDAR (CHM) DATA #####################################
-    # If CHM inputs are detected, it will proceed to solar/sensor data
-    if os.path.isdir(os.path.join(PATHS["inputs"], "chm")) and has_tif_files(os.path.join(PATHS["inputs"], "chm")):
-        print("Lidar (chm) data detected in inputs folder... ✅ \n")
+    # Path creation for lidar data outputs
+    PATHS["projected_lidar_data"] = os.path.join(PATHS["new_project"], "lidar-data", "projected-data")
+    os.makedirs(PATHS["projected_lidar_data"], exist_ok=True)
+    PATHS["chm_data"] = os.path.join(PATHS["new_project"], "chm-data")
+    os.makedirs(PATHS["chm_data"], exist_ok=True)
+    PATHS["inputs_chm"] = os.path.join(PATHS["inputs"], "chm")
+    print("-" * w)
+
+    # If CHM inputs are detected, it will proceed to solar/sensor data, otherwise it will proceed to processing lidar data
+    if os.path.isdir(PATHS["inputs_chm"]) and has_tif_files(PATHS["inputs_chm"]):
+        print("Lidar (chm) data detected in inputs folder... ✅")
     else:
-        print(style.FOREST + "Processing the lidar data...." + style.RESET)
-        # This script bounding boxes of the shapefiles (if bounding boxes need to be divided into smaller cells, not print statements though)
-        generateforDG.creating_geoinfo(output_shp_path, printt=False)
+        print(style.BOLD + "\n-----PROCESSING LIDAR DATA-----\n" + style.RESET)
+        os.makedirs(PATHS["inputs_chm"], exist_ok=True)
+       
+        # Reprojecting CHM data
+        print("\nReprojecting and cropping lidar data...") 
+        output_lidar_tif_reprojected = reprojectCrop.reprojectTif(lidar_path, PATHS["chm_data"], output_shp_path, resolution = 0.5)
+        PATHS["lidar_reprojected_tif"] = output_lidar_tif_reprojected 
 
-        # If lidar_path in .env is blank, then a RuntimeError is raised
-        if lidar_path == '':
-            raise RuntimeError(".env file must contain a value for \"lidar_path\"") 
-        else:
-            PATHS["chm_data"] = os.path.join(PATHS["new_project"], "chm-data")
-            os.makedirs(PATHS["chm_data"], exist_ok=True)
-
-            # Reprojecting CHM data
-            print("\nReprojecting and cropping lidar data...\n") 
-            PATHS["chm_data"] = os.path.join(PATHS["new_project"], "chm-data")
-            os.makedirs(PATHS["chm_data"], exist_ok=True)
-            output_file_reprojected = reprojectCrop.reprojectTif(lidar_path, PATHS["chm_data"], output_shp_path, resolution = 0.5)
-            PATHS["projected_lidar_data"] = os.path.join(PATHS["new_project"], "lidar-data", "projected-data")
-            os.makedirs(PATHS["projected_lidar_data"], exist_ok=True)
-
-            # Tiling 2020 x 2020
-            print(style.DARKCYAN + "\nNow tiling...\n" + style.RESET)
-            processLidarDEM.processAuxTifs(input_tif=output_file_reprojected, output_directory=PATHS["projected_lidar_data"])
-            print(style.DARKCYAN + "\n\nNow, making the LiDAR inputs for the neural network...\n\n" + style.RESET)
-            PATHS["inputs_chm"] = os.path.join(PATHS["inputs"], "chm")
-            os.makedirs(PATHS["inputs_chm"], exist_ok=True)
-            # Tiling 512 x 512
-            prepareCRSForestData.PrepareForestData(input_directory=PATHS["projected_lidar_data"], output_directory=PATHS["inputs_chm"], path_to_shapefile=output_shp_path)
+        # Tiling 2020 x 2020
+        print(style.DARKCYAN + "\nNow tiling 2020 x 2020...\n" + style.RESET)
+        processLidarDEM.processAuxTifs(input_tif=PATHS["lidar_reprojected_tif"], raw_directory=PATHS["satellite_copied_directory"], metadata_path=PATHS["site-metadata"], output_directory=PATHS["projected_lidar_data"])
+        
+        # Tiling 512 x 512
+        print(style.CYAN + "\n\nNOW MAKING THE LIDAR INPUTS FOR THE NEURAL NETWORK..." + style.RESET)
+        prepareCRSForestData.PrepareForestData(input_directory=PATHS["projected_lidar_data"], output_directory=PATHS["inputs_chm"], path_to_shapefile=PATHS["projected-shapefile"])
         
     #################################### SENSOR & SOLAR DATA ##################################
-    # If sensor/solar inputs are detected, it will proceed to DATA QAQC
-    if os.path.isdir(os.path.join(PATHS["inputs"], "solar")) and has_tif_files(os.path.join(PATHS["inputs"], "solar")) and os.path.isdir(os.path.join(PATHS["inputs"], "sensor")) and has_tif_files(os.path.join(PATHS["inputs"], "sensor")) :
-        print("Solar and sensor data detected in inputs folder... ✅ \n")
+    # Path creation for sensor and solar inputs
+    PATHS["inputs_solar"] = os.path.join(PATHS["inputs"], "solar")
+    PATHS["inputs_sensor"] = os.path.join(PATHS["inputs"], "sensor")
+    print("-" * w)
+
+    # If sensor/solar inputs are detected, it will proceed to DATA QAQC, otherwise it will create solar and sensor data
+    if os.path.isdir(PATHS["inputs_solar"]) and has_tif_files(PATHS["inputs_solar"]) and os.path.isdir(PATHS["inputs_sensor"]) and has_tif_files(PATHS["inputs_sensor"]):
+        print("Solar and sensor data detected in inputs folder... ✅")
     else:
         # This processes off-nadir angle, target azimuth, solar elevation, solar azimuth from the angle metadata
-        print("\n" + style.FOREST + "Processing solar and sensor data...." + style.RESET + "\n")
-        solar_input, sensor_input = createAnglearrays.SensorSolarAngles(output_directory=PATHS["inputs"], path_to_csv=PATHS["dg_csv_path"])
-        PATHS["inputs_solar"] = solar_input
-        PATHS["input_sensor"] = sensor_input
+        print(style.BOLD + "\n-----PROCESSING SOLAR AND SENSOR DATA-----\n" + style.RESET)
+        os.makedirs(PATHS["inputs_sensor"], exist_ok=True)
+        os.makedirs(PATHS["inputs_solar"], exist_ok=True)
+        solar_input=PATHS["inputs_solar"], sensor_input= PATHS["inputs_sensor"] = createAnglearrays.SensorSolarAngles(output_directory=PATHS["inputs"], path_to_csv=PATHS["angle_metadata"])
+    
     #################################### DATA QAQC #############################################
     # Data QAQC happens every time regardless if it has happened before
     print("-" * w)
     print(style.BOLD + "\n-----QAQC-----\n" + style.RESET)
     print(style.FOREST + "Checking if all data inputs are satisfactory..." + style.RESET) 
     
-    # Checks if CHM data, specifically contains alot of NAN values or 0s
-    tif_qaqc(os.path.join(PATHS["inputs"], "chm"))
-
+    # Checks if lidar, dem, and satellite data, specifically contains alot of NAN values or 0s
+    print("\nQAQC: Satellite Data...")
+    tif_qaqc(PATHS["inputs_wvimg"])
+    print("\nQAQC: DEM Data...")
+    tif_qaqc(PATHS["inputs_dem"])
+    print("\nQAQC: Lidar Data...")
+    tif_qaqc(PATHS["inputs_chm"])
+    
     # Removes files like ._{filename} or *.xml from all directories
     print("\nRemoving possible non-TIF file artifacts in all input folders...\n")
-    delete_non_tif(os.path.join(PATHS["inputs"], "chm"))
-    delete_non_tif(os.path.join(PATHS["inputs"], "solar"))
-    delete_non_tif(os.path.join(PATHS["inputs"], "sensor"))
-    delete_non_tif(os.path.join(PATHS["inputs"], "wvimg"))
-    delete_non_tif(os.path.join(PATHS["inputs"], "dem"))
+    delete_non_tif(PATHS["inputs_chm"])
+    delete_non_tif(PATHS["inputs_solar"])
+    delete_non_tif(PATHS["inputs_sensor"])
+    delete_non_tif(PATHS["inputs_wvimg"])
+    delete_non_tif(PATHS["inputs_dem"])
 
     #################################### CALCULATE BOUNDS #######################################
-    # If bounds are already created, then this will be skipped
     print("-" * w)
     print(style.BOLD + "\n-----PROCESSING INPUT METADATA-----\n" + style.RESET)
+
     output_bounds_json = os.path.join(PATHS["inputs"], "bounds.json")
+    PATHS["output_bounds_json"] = output_bounds_json
+
+    # If bounds are already created, then this will be skipped
     if os.path.exists(output_bounds_json):
         print("Bounds are already saved...✅ \n")
     else:
         # Bounding boxes for each 512 x 512 wvimg tile are saved in the bounds.json file (to be applied to predictions later)
         print(style.FOREST + "Saving the bounds for satellite imagery...\n" + style.RESET)
-        output_bounds_json = os.path.join(PATHS["inputs"], "bounds.json")
-        calculating_wvimg_bounds(directory = os.path.join(PATHS["inputs"], "wvimg"), output_json=output_bounds_json)
+        os.makedirs(PATHS["output_bounds_json"], exist_ok=True)
+        calculating_wvimg_bounds(directory = PATHS["inputs_wvimg"], output_json=PATHS["output_bounds_json"])
 
     ##################################### MATCHING KEYS #####################################
     # If inputs are already renamed, then this will be skipped. 
-    if os.path.exists(os.path.join(PATHS["inputs"],"dem.json")) and os.path.exists(os.path.join(PATHS["inputs"],"chm.json")):
+    print("-" * w)
+    PATHS["dem_json"] = os.path.join(PATHS["inputs"],"dem.json") 
+    PATHS["chm_json"] = os.path.join(PATHS["inputs"],"chm.json")
+
+    if os.path.exists(PATHS["dem_json"]) and os.path.exists(PATHS["chm_json"]):
         print("Inputs are already renamed... ✅ \n")
     else:
         # Match keys for dem & chm, makes sure files are the same
         print(style.FOREST + "Renaming and structuring inputs for ms-net...\n" + style.RESET)
-        matchkeys.matchKeys('dem')
-        matchkeys.matchKeys('chm')
+        matchkeys.matchKeys(data_type ="dem")
+        matchkeys.matchKeys(data_type = "chm")
  
     ##################################### TRAINING, TESTING, & VALIDATION ##################################
-    # If lists are already named, then this will be skipped. 
-    if os.path.exists(os.path.join(PATHS["inputs"], f"{site}_train.txt")) and os.path.exists(os.path.join(PATHS["inputs"], f"{site}_val.txt")) and os.path.exists(os.path.join(PATHS["inputs"], f"{site}_test.txt")):
-        print("Training, testing, and validation lists are already made... ✅ \n")
-        print("-" * w)
-        response_list = input("\nWould you like to make new training, testing, and validation lists? (Y/N):")
-        # You may rewrite lists
-        if response_list.upper() == "Y":
-            print(style.FOREST + "Rewriting the training, testing, and validation lists..." + style.RESET)
-            train_val_list.train_val_test_split()
-        # You may continue with existing ones
-        elif response_list.upper() == "N":
-            print("Continuing with existing training, testing, and validation lists...")
-        else:
-            raise RuntimeError("Invalid response. Please enter 'Y' or 'N'.")
-    else:
-        print(style.FOREST + "Writing the training, testing, and validation lists..." + style.RESET)
-        train_val_list.train_val_test_split()
-
+    print("-" * w)
+    print(style.FOREST + "Rewriting the training, testing, and validation lists..." + style.RESET)
+    train_val_list.train_val_test_split()
     ######################################################################################################
     # Neural network is initiated
     print("-" * w)
-    print(style.PURPLE + "\nInitiating the neural network...\n" + style.RESET)
+    print("-" * w)
+
+    print(style.BOLD + "\n-----INITIATING THE NEURAL NETWORK-----\n" + style.RESET)
     
     print("\nTraining is in progress...")
     print("\n\n\nYou can monitor the validation loss and other metrics using Tensorboard.")
