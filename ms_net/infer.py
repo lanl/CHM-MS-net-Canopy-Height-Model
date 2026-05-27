@@ -19,7 +19,7 @@ except (ImportError, ModuleNotFoundError):
     from pore_utils_2D import get_dataloader
 
 
-def run_inference(data_path, site, NORM_CONST, model_loc, epsg_code, phase='inf'):
+def run_inference(data_path, site, NORM_CONST, model_loc, epsg_code, phase='inf', trainSite=None, testSite=None):
     """Run CHM predictions and save results as GeoTIFFs."""
     output_folder = os.path.join(data_path, 'chm_preds')
 
@@ -92,7 +92,12 @@ def run_inference(data_path, site, NORM_CONST, model_loc, epsg_code, phase='inf'
     with open(test_list, 'r') as file:
         for i, line in enumerate(file):
             base_name = line.strip().split(".")[0]
-            fileName = f'{base_name}.tif'
+            if trainSite is not None and testSite is not None:
+                fileName = f'train_{trainSite}_test{testSite}_{base_name}.tif'
+            else:    
+                fileName = f'{base_name}.tif'
+
+            print(f'base_name: {base_name}')
 
             y_pred = get_ypred(valdata, i)
 

@@ -2355,8 +2355,8 @@ def genTreelist(tifPath, projectPath, rdsPath=None, epsg=None, filename = 'treel
     #TODO: Add col for crown radius derived from crown area
 
     # Add additional attributes with cloud2trees
-    df = trivHMD(treelistCSV=treelist_csv, crownsGPKG=crowns_gpkg, chm_raster=tifPath)
-    df.to_csv(treelist_csv)
+    # df = trivHMD(treelistCSV=treelist_csv, crownsGPKG=crowns_gpkg, chm_raster=tifPath)
+    # df.to_csv(treelist_csv)
 
     # If we don't have rds data, add the hmd with a trivial hmd method
     if rdsPath != None and epsg != None:
