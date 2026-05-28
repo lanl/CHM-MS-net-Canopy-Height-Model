@@ -5,55 +5,71 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import pearsonr
 from skimage.metrics import structural_similarity as ssim
+from sklearn.metrics.pairwise import cosine_similarity
 
-def find_and_plot_tiles(key_pattern, base_dir='.', metric='all'):
+def find_and_plot_tiles(coord_pattern, sites_data_dir='./sites_data', metric='all'):
     """
-    Find 9 tiles matching key_pattern and create a 3x3 plot with normalized viridis colormap.
+    Find tiles matching coordinate pattern across all sites and create a plot.
+    
+    All metrics are normalized to [0, 1] where 1 = perfect match:
+    - cosine: Pattern similarity (angle between vectors)
+    - ssim: Structural similarity (luminance + contrast + structure)
+    - norm_corr: Normalized correlation (linear relationship)
+    - similarity: Inverse normalized MAE (pixel-wise accuracy)
     
     Args:
-        key_pattern: Substring to match (e.g., "⋆⋆X_YYY")
-        base_dir: Base directory to search in
-        metric: Which metric to display ('r2', 'correlation', 'ssim', 'nrmse', or 'all')
+        coord_pattern: Coordinate pattern to match (e.g., "491008_7199136")
+        sites_data_dir: Path to sites_data directory
+        metric: Which metric to display ('cosine', 'ssim', 'norm_corr', 'similarity', or 'all')
     """
-    # Find all matching files
-    matching_files = []
-    for root, dirs, files in os.walk(base_dir):
-        for file in files:
-            if key_pattern in file and (file.endswith('.png') or file.endswith('.tif') or file.endswith('.jpg')):
-                matching_files.append(os.path.join(root, file))
+    sites_data_path = Path(sites_data_dir)
     
-    # Separate ground truth from predictions
+    # Find all matching files
     ground_truth = None
     predictions = []
     
-    for file_path in matching_files:
-        # Ground truth: in 'chm' folder but NOT in 'chm_preds'
-        if 'chm_preds' in file_path:
-            predictions.append(file_path)
-        elif 'chm' in file_path:
-            ground_truth = file_path
+    # Search through all site directories
+    for site_dir in sites_data_path.glob("*_data"):
+        if not site_dir.is_dir():
+            continue
+        
+        # Search in chm folder for ground truth
+        chm_dir = site_dir / "chm"
+        if chm_dir.exists():
+            for file in chm_dir.glob(f"*{coord_pattern}*"):
+                if file.suffix.lower() in ['.tif', '.tiff', '.png', '.jpg']:
+                    if ground_truth is None:
+                        ground_truth = str(file)
+                        print(f"Found ground truth: {file.name}")
+                    else:
+                        print(f"Warning: Multiple ground truth files found, using first one")
+        
+        # Search in all chm_preds_train_* folders for predictions
+        for pred_dir in site_dir.glob("chm_preds_train_*"):
+            if not pred_dir.is_dir():
+                continue
+            
+            # Extract training site from folder name
+            train_site = pred_dir.name.replace("chm_preds_train_", "")
+            
+            for file in pred_dir.glob(f"*{coord_pattern}*"):
+                if file.suffix.lower() in ['.tif', '.tiff', '.png', '.jpg']:
+                    predictions.append((str(file), train_site))
+                    print(f"Found prediction: {train_site} -> {file.name}")
     
-    # Verify we have the right number of files
+    # Verify we found files
     if ground_truth is None:
-        raise ValueError(f"No ground truth file found in 'chm' folder (excluding 'chm_preds')")
-    if len(predictions) != 8:
-        raise ValueError(f"Expected 8 prediction files in 'chm_preds', found {len(predictions)}")
+        raise ValueError(f"No ground truth file found with pattern '{coord_pattern}' in any chm folder")
+    if len(predictions) == 0:
+        raise ValueError(f"No prediction files found with pattern '{coord_pattern}'")
     
-    # Extract site names and sort predictions
-    pred_info = []
-    for pred_path in predictions:
-        filename = os.path.basename(pred_path)
-        # Extract site from pattern "train_{SITE}_*"
-        if 'train_' in filename:
-            site = filename.split('train_')[1].split('_')[0]
-        else:
-            site = "Unknown"
-        pred_info.append((pred_path, site))
+    print(f"\nFound {len(predictions)} predictions for coordinate {coord_pattern}")
     
-    pred_info.sort(key=lambda x: x[1])  # Sort by site name
+    # Sort predictions by training site name
+    predictions.sort(key=lambda x: x[1])
     
-    # Load all images and find the one with greatest range
-    all_paths = [ground_truth] + [p[0] for p in pred_info]
+    # Load all images
+    all_paths = [ground_truth] + [p[0] for p in predictions]
     images = []
     
     for path in all_paths:
@@ -69,38 +85,52 @@ def find_and_plot_tiles(key_pattern, base_dir='.', metric='all'):
     # Ground truth is the first image
     gt_image = images[0]
     gt_flat = gt_image.flatten()
-    gt_mean = np.mean(gt_flat)
-    gt_std = np.std(gt_flat)
     
-    # Calculate metrics for each prediction
+    # Calculate metrics for each prediction (all bounded [0, 1])
     metrics_list = []
     for pred_img in images[1:]:
         pred_flat = pred_img.flatten()
         
-        # R² score
-        ss_res = np.sum((gt_flat - pred_flat) ** 2)
-        ss_tot = np.sum((gt_flat - gt_mean) ** 2)
-        r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+        # 1. COSINE SIMILARITY [0, 1]
+        # Measures the cosine of the angle between two vectors
+        # 1 = vectors point in same direction (identical patterns)
+        # 0 = vectors are orthogonal (no pattern similarity)
+        # For non-negative data like images, naturally bounded [0, 1]
+        cos_sim = cosine_similarity(gt_flat.reshape(1, -1), pred_flat.reshape(1, -1))[0, 0]
         
-        # Pearson correlation
-        corr, _ = pearsonr(gt_flat, pred_flat)
-        
-        # SSIM (requires same data range)
+        # 2. SSIM [0, 1]
+        # Structural Similarity Index - designed for image quality assessment
+        # Compares: luminance (brightness), contrast (dynamic range), structure (patterns)
+        # 1 = structurally identical images
+        # 0 = completely different structure
         data_range = gt_image.max() - gt_image.min()
         ssim_val = ssim(gt_image, pred_img, data_range=data_range)
         
-        # Normalized RMSE
-        rmse = np.sqrt(np.mean((gt_flat - pred_flat) ** 2))
-        nrmse = rmse / gt_std if gt_std != 0 else 0
+        # 3. NORMALIZED CORRELATION [0, 1]
+        # Pearson correlation transformed from [-1, 1] to [0, 1]
+        # Measures strength of linear relationship
+        # 1 = perfect positive correlation
+        # 0.5 = no correlation
+        # 0 = perfect negative correlation
+        corr, _ = pearsonr(gt_flat, pred_flat)
+        norm_corr = (corr + 1) / 2
+        
+        # 4. NORMALIZED SIMILARITY [0, 1]
+        # Based on Mean Absolute Error, normalized and inverted
+        # Measures pixel-wise accuracy relative to data range
+        # 1 = perfect pixel-wise match (MAE = 0)
+        # 0 = maximum possible error (MAE = data_range)
+        mae = np.mean(np.abs(gt_flat - pred_flat))
+        similarity = 1 - (mae / data_range) if data_range > 0 else 1
         
         metrics_list.append({
-            'r2': r2,
-            'corr': corr,
+            'cosine': cos_sim,
             'ssim': ssim_val,
-            'nrmse': nrmse
+            'norm_corr': norm_corr,
+            'similarity': similarity
         })
     
-    # Find the image with the greatest range (max - min)
+    # Find the image with the greatest range for colorbar normalization
     max_range = 0
     vmin, vmax = 0, 1
     
@@ -114,55 +144,68 @@ def find_and_plot_tiles(key_pattern, base_dir='.', metric='all'):
             vmin = img_min
             vmax = img_max
     
-    print(f"Normalizing to range: [{vmin:.2f}, {vmax:.2f}]")
+    print(f"Normalizing colormap to range: [{vmin:.2f}, {vmax:.2f}]")
     
-    # Create 3x3 plot with space for colorbar
-    fig = plt.figure(figsize=(16, 15))
-    gs = fig.add_gridspec(3, 3, hspace=0.3, wspace=0.3, right=0.85)
-    axes = np.array([[fig.add_subplot(gs[i, j]) for j in range(3)] for i in range(3)])
+    # Determine grid size based on number of predictions
+    n_total = len(predictions) + 1  # +1 for ground truth
+    n_cols = min(3, n_total)
+    n_rows = (n_total + n_cols - 1) // n_cols  # Ceiling division
     
-    # Plot ground truth in top-left (0, 0)
-    im = axes[0, 0].imshow(images[0], cmap='viridis', vmin=vmin, vmax=vmax)
-    axes[0, 0].set_title('Ground Truth', fontsize=12, fontweight='bold')
-    axes[0, 0].axis('off')
+    # Create plot
+    fig = plt.figure(figsize=(5.5 * n_cols, 5 * n_rows))
+    gs = fig.add_gridspec(n_rows, n_cols, hspace=0.3, wspace=0.3, right=0.85)
     
-    # Plot predictions in remaining positions
-    positions = [(i, j) for i in range(3) for j in range(3)]
-    positions.remove((0, 0))  # Remove top-left
+    # Plot ground truth first
+    ax0 = fig.add_subplot(gs[0, 0])
+    im = ax0.imshow(images[0], cmap='viridis', vmin=vmin, vmax=vmax)
+    ax0.set_title('Ground Truth', fontsize=12, fontweight='bold', pad=10)
+    ax0.axis('off')
     
-    for idx, ((pred_path, site), img, metrics_dict) in enumerate(zip(pred_info, images[1:], metrics_list)):
-        i, j = positions[idx]
-        axes[i, j].imshow(img, cmap='viridis', vmin=vmin, vmax=vmax)
+    # Plot predictions
+    for idx, ((pred_path, train_site), img, metrics_dict) in enumerate(zip(predictions, images[1:], metrics_list), start=1):
+        row = idx // n_cols
+        col = idx % n_cols
+        ax = fig.add_subplot(gs[row, col])
+        ax.imshow(img, cmap='viridis', vmin=vmin, vmax=vmax)
         
         # Format title based on selected metric
         if metric == 'all':
-            title = f'Site: {site}\nR²={metrics_dict["r2"]:.3f} | ρ={metrics_dict["corr"]:.3f} | SSIM={metrics_dict["ssim"]:.3f}'
-        elif metric == 'r2':
-            title = f'Site: {site} | R² = {metrics_dict["r2"]:.3f}'
-        elif metric == 'correlation':
-            title = f'Site: {site} | ρ = {metrics_dict["corr"]:.3f}'
+            title = (f'Train: {train_site}\n'
+                    f'Cosine={metrics_dict["cosine"]:.3f} | SSIM={metrics_dict["ssim"]:.3f}\n'
+                    f'Corr={metrics_dict["norm_corr"]:.3f} | Sim={metrics_dict["similarity"]:.3f}')
+        elif metric == 'cosine':
+            title = f'Train: {train_site}\nCosine Similarity = {metrics_dict["cosine"]:.3f}'
         elif metric == 'ssim':
-            title = f'Site: {site} | SSIM = {metrics_dict["ssim"]:.3f}'
-        elif metric == 'nrmse':
-            title = f'Site: {site} | NRMSE = {metrics_dict["nrmse"]:.3f}'
+            title = f'Train: {train_site}\nSSIM = {metrics_dict["ssim"]:.3f}'
+        elif metric == 'norm_corr':
+            title = f'Train: {train_site}\nNorm. Correlation = {metrics_dict["norm_corr"]:.3f}'
+        elif metric == 'similarity':
+            title = f'Train: {train_site}\nSimilarity = {metrics_dict["similarity"]:.3f}'
         
-        axes[i, j].set_title(title, fontsize=10)
-        axes[i, j].axis('off')
+        ax.set_title(title, fontsize=10, pad=10)
+        ax.axis('off')
     
-    # Add colorbar to the right of all subplots
-    cbar_ax = fig.add_axes([0.88, 0.15, 0.02, 0.7])  # [left, bottom, width, height]
+    # Add colorbar
+    cbar_ax = fig.add_axes([0.88, 0.15, 0.02, 0.7])
     fig.colorbar(im, cax=cbar_ax)
     
-    plt.savefig(f'comparison_{key_pattern}.png', dpi=150, bbox_inches='tight')
+    # Save and show
+    output_file = f'comparison_{coord_pattern}.png'
+    plt.savefig(output_file, dpi=150, bbox_inches='tight')
+    print(f"\nPlot saved to: {output_file}")
     plt.show()
     
     return fig
 
-# Usage - same as before:
-find_and_plot_tiles("10300100632D9700_431536_3544816", 
-                    base_dir="/mnt/c/Users/402630/Desktop/SatCHM_copy/fortStewart_data")
+# Usage:
+find_and_plot_tiles(
+    "726880_4709152", 
+    sites_data_dir="/mnt/c/Users/402630/Desktop/SatCHM_copy/sites_data"
+)
 
-# Or try different metrics:
-# find_and_plot_tiles("10300100632D9700_431536_3544816", 
-#                     base_dir="/mnt/c/Users/402630/Desktop/SatCHM_copy/fortStewart_data",
-#                     metric='r2')
+# Or with specific metric:
+# find_and_plot_tiles(
+#     "726880_4709152", 
+#     sites_data_dir="/mnt/c/Users/402630/Desktop/SatCHM_copy/sites_data",
+#     metric='cosine'  # Options: 'cosine', 'ssim', 'norm_corr', 'similarity', 'all'
+# )
