@@ -859,21 +859,45 @@ def place_train_rect_within_mask(
 
 
 def mergeTifs(inputPath, savePath, target_resolution=0.5):
+    # If inputPath contains only a single zip file, unzip it and use the extracted contents
+    if os.path.isdir(inputPath):
+        items = [os.path.join(inputPath, item) for item in os.listdir(inputPath)]
+        files = [item for item in items if os.path.isfile(item)]
+        dirs = [item for item in items if os.path.isdir(item)]
+        zip_files = [item for item in files if item.lower().endswith(".zip")]
+
+        if len(zip_files) == 1 and len(files) == 1 and len(dirs) == 0:
+            zip_path = zip_files[0]
+            extract_dir = os.path.join(inputPath, "unzipped_contents")
+
+            # Optional: clear old extracted contents before re-extracting
+            if os.path.exists(extract_dir):
+                shutil.rmtree(extract_dir)
+            os.makedirs(extract_dir, exist_ok=True)
+
+            print(f"Only zip found in inputPath. Extracting: {zip_path}")
+            with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                zip_ref.extractall(extract_dir)
+
+            inputPath = extract_dir
+            print(f"Using extracted contents from: {inputPath}")
+
     # Identify each subfolder within this folder
     subfolders = [f.path for f in os.scandir(inputPath) if f.is_dir()]
+
     os.makedirs(savePath, exist_ok=True)
 
     for subfolder in subfolders:
         tif_files = []
-        metadata_xml = ''
+        metadata_xml = ""
 
         # Recursively search for all tif tiles and metadata xml in the subfolder
         for root, _, files in os.walk(subfolder):
             for file in files:
-                if file.lower().endswith('.tif') and 'P' in root:
-                    # print(f'file: {file}')
+                if file.lower().endswith(".tif") and "P" in root:
                     tif_files.append(os.path.join(root, file))
-                if file.lower().endswith('.xml') and 'P' in root and 'tif' not in file.lower():
+
+                if file.lower().endswith(".xml") and "P" in root and "tif" not in file.lower():
                     metadata_xml = os.path.join(root, file)
 
         if not tif_files:
@@ -881,22 +905,21 @@ def mergeTifs(inputPath, savePath, target_resolution=0.5):
             continue
 
         # Parse metadata for tile ID
-        tileID = ''
+        tileID = ""
         if metadata_xml:
-            print(f'metadata_xml: {metadata_xml}')
+            print(f"metadata_xml: {metadata_xml}")
             tree = ET.parse(metadata_xml)
             root = tree.getroot()
-            catid_elem = root.find('.//IMD/IMAGE/CATID')
+            catid_elem = root.find(".//IMD/IMAGE/CATID")
             if catid_elem is not None:
                 tileID = catid_elem.text
-                print(f'tileID: {tileID}')
+                print(f"tileID: {tileID}")
             else:
-                print('catid_elem is none!')
+                print("catid_elem is none!")
         else:
-            print('METADATA FILE NOT FOUND')
+            print("METADATA FILE NOT FOUND")
 
         # Output filename
-        # save_folder = os.path.dirname(savePath)
         new_savePath = os.path.join(savePath, f"{tileID}.tif")
 
         # Merge the TIFs
@@ -912,7 +935,7 @@ def mergeTifs(inputPath, savePath, target_resolution=0.5):
         right = left + mosaic.shape[2] * out_trans.a
         bottom = top + mosaic.shape[1] * out_trans.e
 
-        # Align bounds to 0.5m grid
+        # Align bounds to target grid
         aligned_left = np.floor(left / target_resolution) * target_resolution
         aligned_bottom = np.floor(bottom / target_resolution) * target_resolution
         aligned_right = np.ceil(right / target_resolution) * target_resolution
@@ -923,8 +946,11 @@ def mergeTifs(inputPath, savePath, target_resolution=0.5):
         dst_height = int((aligned_top - aligned_bottom) / target_resolution)
 
         # New transform
-        dst_transform = from_origin(
-            aligned_left, aligned_top, target_resolution, target_resolution
+        dst_transform = rasterio.transform.from_origin(
+            aligned_left,
+            aligned_top,
+            target_resolution,
+            target_resolution
         )
 
         # Metadata for the resampled output
