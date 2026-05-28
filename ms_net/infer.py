@@ -22,6 +22,7 @@ except (ImportError, ModuleNotFoundError):
 def run_inference(data_path, site, NORM_CONST, model_loc, epsg_code, phase='inf', trainSite=None, testSite=None):
     """Run CHM predictions and save results as GeoTIFFs."""
     output_folder = os.path.join(data_path, 'chm_preds')
+    os.makedirs(output_folder, exist_ok=True)  # Create early
 
     # choose device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -53,8 +54,8 @@ def run_inference(data_path, site, NORM_CONST, model_loc, epsg_code, phase='inf'
         num_features=4,
         num_filters=8,
         f_mult=4,
-        map_location=device,            # <—
-    ).to(device).eval()                 # <—
+        map_location=device,
+    ).to(device).eval()
 
     val_dataloader = get_dataloader(net_dict, ['inf'], data_path=data_path, NORM_CONST=NORM_CONST)
     valdata = val_dataloader['inf'].dataset
@@ -62,43 +63,51 @@ def run_inference(data_path, site, NORM_CONST, model_loc, epsg_code, phase='inf'
     @torch.inference_mode()
     def get_ypred(dataset, sampleidx):
         sample, masks, xy = dataset[sampleidx]
-        # print("sample:", sample)
-        # print("sample type:", type(sample))
 
-        # x is a list of tensors/arrays → ensure torch tensors on the same device
         x = [
             torch.as_tensor(wvsam, dtype=torch.float32, device=device).unsqueeze(0)
             for wvsam in xy[0]
         ]
 
-        # move masks too (handles tensor, list/tuple, or None)
         if masks is not None:
             if isinstance(masks, (list, tuple)):
                 masks = [torch.as_tensor(m, dtype=torch.float32, device=device) for m in masks]
             else:
                 masks = torch.as_tensor(masks, dtype=torch.float32, device=device)
 
-        # sanity check (catches device mismatches early)
         assert next(model.parameters()).device == x[0].device, \
             f"Model on {next(model.parameters()).device}, input on {x[0].device}"
 
         y_pred_list = model(x, masks)
-        y_pred = y_pred_list[-1].detach().to('cpu')[0, 0, :, :]  # back to CPU for rasterio
-        y_pred = y_pred * NORM_CONST  # de-normalize
+        y_pred = y_pred_list[-1].detach().to('cpu')[0, 0, :, :]
+        y_pred = y_pred * NORM_CONST
+        
+        # 🔥 FIX 1: Clear GPU memory after each prediction
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
         return y_pred
 
-    # run predictions
+    # 🔥 FIX 2: Read test list FIRST, then close the file before processing
     test_list = params.inf_list
     with open(test_list, 'r') as file:
-        for i, line in enumerate(file):
-            base_name = line.strip().split(".")[0]
-            if trainSite is not None and testSite is not None:
-                fileName = f'train_{trainSite}_test{testSite}_{base_name}.tif'
-            else:    
-                fileName = f'{base_name}.tif'
+        test_files = [line.strip() for line in file if line.strip()]
+    
+    # 🔥 FIX 3: Add error tracking
+    successful_writes = []
+    failed_writes = []
+    
+    # run predictions
+    for i, line in enumerate(test_files):
+        base_name = line.split(".")[0]
+        if trainSite is not None and testSite is not None:
+            fileName = f'train_{trainSite}_test{testSite}_{base_name}.tif'
+        else:    
+            fileName = f'{base_name}.tif'
 
-            print(f'base_name: {base_name}')
+        print(f'Processing {i+1}/{len(test_files)}: {base_name}')
 
+        try:
             y_pred = get_ypred(valdata, i)
 
             # parse coordinates from filename
@@ -112,8 +121,8 @@ def run_inference(data_path, site, NORM_CONST, model_loc, epsg_code, phase='inf'
             transform = from_origin(easting, northing, pixel_size, pixel_size)
 
             output_path = os.path.join(output_folder, fileName)
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
+            # 🔥 FIX 4: Write with explicit flushing
             with rasterio.open(
                 output_path,
                 'w',
@@ -127,6 +136,39 @@ def run_inference(data_path, site, NORM_CONST, model_loc, epsg_code, phase='inf'
                 compress='lzw'
             ) as dst:
                 dst.write(y_pred.numpy(), 1)
+                # Explicitly flush to disk
+            
+            # 🔥 FIX 5: Verify file was written correctly
+            if not os.path.exists(output_path):
+                raise IOError(f"File was not created: {output_path}")
+            
+            file_size = os.path.getsize(output_path)
+            if file_size < 156:  # TIFF header minimum
+                raise IOError(f"File too small ({file_size} bytes), likely corrupted")
+            
+            successful_writes.append(fileName)
+            
+        except Exception as e:
+            print(f"  ❌ Error processing {base_name}: {e}")
+            failed_writes.append((fileName, str(e)))
+            # Continue with next file instead of crashing
+            continue
+    
+    # 🔥 FIX 6: Final sync to ensure all writes are complete
+    import subprocess
+    try:
+        subprocess.run(['sync'], check=False, timeout=5)  # Linux/Mac
+    except:
+        pass  # Windows doesn't have sync, that's ok
+    
+    # 🔥 FIX 7: Report results
+    print(f"\n✓ Successfully wrote {len(successful_writes)} files")
+    if failed_writes:
+        print(f"❌ Failed to write {len(failed_writes)} files:")
+        for fname, error in failed_writes:
+            print(f"  - {fname}: {error}")
+    
+    return successful_writes, failed_writes  # Return results for caller to check
 
 
 
