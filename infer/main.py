@@ -10,7 +10,7 @@ import sys
 # Add the project root (the folder that contains `prepTrainInputs/`) to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import prepTrainInputs.main1Utils as utils
+import prepTrainInputs.utils as utils
 from ms_net.infer import run_inference
 import shutil 
 import os
@@ -52,32 +52,38 @@ pathToWvimg = os.path.join(project_path, 'downloads', site, 'wvimgInf')
 prewvimgPath = os.path.join(inf_data_path, 'prewvimg')
 metadataPath = os.path.join(project_path, 'downloads', site, 'metadata', 'DGTilesMetadata.json')
 outputRasterPath = os.path.join(inf_data_path, 'INF_chm_pred_merged.tif')
-croppedOutputRasterPath = os.path.join(inf_data_path, 'cropped_INF_chm_pred.tif')
+croppedOutputRasterPath = os.path.join(inf_data_path, f'{site}_merged_CHM_inf.tif')
 
-# code that selects the latest weights set
+try:
+    # code that selects the latest weights set
     # example file path: project_path/SatCHM/ms_net/lightning_logs/version_0/epoch-epoch=999.ckpt
-weightsRoot = os.path.join(project_path, 'SatCHM', 'ms_net', 'lightning_logs')
-weightsVersion = max(
-    (
-        os.path.join(weightsRoot, d)
-        for d in os.listdir(weightsRoot)
-        if d.startswith("version_")
-    ),
-    key=lambda p: int(p.split("_")[-1])
-)
-ckpt_dir = Path(weightsVersion) / "checkpoints"
-epoch_re = re.compile(r"epoch=(\d+)\.ckpt$")
-matches = []
-for p in ckpt_dir.glob("*.ckpt"):
-    m = epoch_re.search(p.name)
-    if m:
-        matches.append((int(m.group(1)), p))
-if not matches:
-    raise FileNotFoundError(f"No weights files found in {ckpt_dir}")
-pathToWeights = max(matches, key=lambda t: t[0])[1]
+    weightsRoot = os.path.join(project_path, 'SatCHM', 'ms_net', 'lightning_logs')
+    weightsVersion = max(
+        (
+            os.path.join(weightsRoot, d)
+            for d in os.listdir(weightsRoot)
+            if d.startswith("version_")
+        ),
+        key=lambda p: int(p.split("_")[-1])
+    )
+    ckpt_dir = Path(weightsVersion) / "checkpoints"
+    epoch_re = re.compile(r"epoch=(\d+)\.ckpt$")
+    matches = []
+    for p in ckpt_dir.glob("*.ckpt"):
+        m = epoch_re.search(p.name)
+        if m:
+            matches.append((int(m.group(1)), p))
+    if not matches:
+        raise FileNotFoundError(f"No weights files found in {ckpt_dir}")
+    pathToWeights = max(matches, key=lambda t: t[0])[1]
+    print(f"Automatically selected weights: {pathToWeights}")
+except Exception as e:
+    print(f"⚠️  Failed to automatically select weights: {e}")
+    print("Using fallback weights path...")
+    pathToWeights = '/project/es14-stor/canopy/SatCHM/ms_net/lightning_logs/version_4/checkpoints/quemazon999.ckpt'
 
-# OPTIONAL: If automatic weight selection is not your intended weights file, uncomment the below line and manually fill in the path to your weights file
-# pathToWeights = 
+# OPTIONAL: Uncomment to manually override
+# pathToWeights = ''
 
 # Optional, only needed if trying to compute CBH in treelist
 rdsPath = None

@@ -1,4 +1,4 @@
-name: SatCHMenvV8
+name: satchm
 
 channels:
   - conda-forge

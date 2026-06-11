@@ -24,6 +24,7 @@ trainShpPath = os.getenv('trainShpPath')
 print('Merging wvimg tiles')
 wvimgMergedPath = os.path.join(site_data_path, 'prewvimg')
 pathToWvimg = os.path.join(project_path, 'downloads', site, 'wvimgTrain')
+os.makedirs(wvimgMergedPath, exist_ok=True)
 utils.mergeTifs(pathToWvimg, wvimgMergedPath)
 print(f'Saved merged wvimg tiles to {wvimgMergedPath}')
 
