@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 # Add the project root (the folder that contains `prepTrainInputs/`) to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import prepTrainInputs.main1Utils as utils
+import SatCHM.prepTrainInputs.utils as utils
 from ms_net.infer import run_inference
 
 

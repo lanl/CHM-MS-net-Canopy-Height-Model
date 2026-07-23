@@ -148,7 +148,7 @@ You must download **cloud-free, snow-free Vantor imagery** with:
 - Off-nadir angle **< 20°**
 - Coverage spanning training and inference areas
 
-For now, contact **zcrennen@lanl.gov** for assistance.
+For now, contact **rcrumley@lanl.gov** for assistance.
 
 #### Imagery Alignment
 
@@ -260,5 +260,7 @@ The merged predicted CHM raster is:
 `
 INF_chm_pred_merged
 `
+
+NOTE: you may see some edge effects in the merge between tiles. To soften these, increase the `FEATHER_CONST` value on line 39 of infer/main.py
 
 If you only followed the conda environment build and activation in Step 5.1 without the optional cloud2trees installation, your code will fail on the treelist generation step. This is OK, and you may use INF_chm_pred_merged as your final output. If cloud2trees was installed, the CHM raster will be segmented (may take a while), and your final output will appear at `{site}_INF_data/{site}_treelist.csv`.

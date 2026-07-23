@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import sys
+import zipfile
 import time
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed, ProcessPoolExecutor
@@ -28,7 +29,6 @@ from dataclasses import dataclass
 import warnings
 import stat
 import traceback
-import zipfile
 
 # Third-party
 import geopandas as gpd
@@ -62,6 +62,7 @@ from functools import partial
 from shapely.geometry import mapping
 from shapely.geometry.base import BaseGeometry
 #TODO: remove unnecessary imports
+
 
 def saveRasterToUTM(rasterPath, epsg, savePath):
     """
@@ -885,19 +886,20 @@ def mergeTifs(inputPath, savePath, target_resolution=0.5):
 
     # Identify each subfolder within this folder
     subfolders = [f.path for f in os.scandir(inputPath) if f.is_dir()]
+
     os.makedirs(savePath, exist_ok=True)
 
     for subfolder in subfolders:
         tif_files = []
-        metadata_xml = ''
+        metadata_xml = ""
 
         # Recursively search for all tif tiles and metadata xml in the subfolder
         for root, _, files in os.walk(subfolder):
             for file in files:
-                if file.lower().endswith('.tif') and 'P' in root:
+                if file.lower().endswith(".tif") and "P" in root:
                     tif_files.append(os.path.join(root, file))
-                
-                if file.lower().endswith('.xml') and 'P' in root and 'tif' not in file.lower():
+
+                if file.lower().endswith(".xml") and "P" in root and "tif" not in file.lower():
                     metadata_xml = os.path.join(root, file)
 
         if not tif_files:
@@ -905,19 +907,19 @@ def mergeTifs(inputPath, savePath, target_resolution=0.5):
             continue
 
         # Parse metadata for tile ID
-        tileID = ''
+        tileID = ""
         if metadata_xml:
-            print(f'metadata_xml: {metadata_xml}')
+            print(f"metadata_xml: {metadata_xml}")
             tree = ET.parse(metadata_xml)
             root = tree.getroot()
-            catid_elem = root.find('.//IMD/IMAGE/CATID')
+            catid_elem = root.find(".//IMD/IMAGE/CATID")
             if catid_elem is not None:
                 tileID = catid_elem.text
-                print(f'tileID: {tileID}')
+                print(f"tileID: {tileID}")
             else:
-                print('catid_elem is none!')
+                print("catid_elem is none!")
         else:
-            print('METADATA FILE NOT FOUND')
+            print("METADATA FILE NOT FOUND")
 
         # Output filename
         new_savePath = os.path.join(savePath, f"{tileID}.tif")
@@ -1192,6 +1194,10 @@ def getSensorNormal(data):
     normal = zg
     return data, normal
 
+def snap(x, res):
+    # snap coordinate to nearest multiple of res
+    return math.ceil(round(x / res) * res)
+
 def process_tile(tile_info, pathToRaster, outputPath, crs, tileSize, res, datatype):
     i, j, left, top, stride_x, stride_y = tile_info
 
@@ -1237,6 +1243,15 @@ def process_tile(tile_info, pathToRaster, outputPath, crs, tileSize, res, dataty
         nodata_value = tile.nodata
         if datatype == 'wvimg':
             nodata_value = 0
+
+        if nodata_value is not None:
+            contains_nodata = (data == nodata_value).any()
+            if contains_nodata:
+                print(f"Tile {os.path.basename(outfile)} contains NoData ({nodata_value}).")
+                os.remove(outfile)
+                if datatype.lower() == 'chm':
+                    print(f'REJECTING A CHM TILE WITH NO DATA')
+                return False
 
     return True
 
@@ -1293,6 +1308,10 @@ def tileRaster(
             y_top    = snap(y, res)
             x_right  = x_left + tileSize
             y_bottom = y_top  - tileSize
+
+            # Skip anchors that would produce a partial tile outside raster
+            if (x_left < src_left) or (x_right > src_right) or (y_bottom < src_bottom) or (y_top > src_top):
+                continue
 
             # pass (0,0,left,top,0,0) → ensures process_tile uses left/top as-is
             tile_info_list.append((0, 0, x_left, y_top, 0.0, 0.0))
@@ -1416,55 +1435,21 @@ def resolveOverlaps(wvimgInfPath, metadataPath):
                         os.remove(output_file)
 
 
-# rcrumley added some error handling below for directories 5/28/26
 def renameTiles(ms_data_path):
     wvimg_path = os.path.join(ms_data_path, "wvimg")
     dem_path = os.path.join(ms_data_path, "dem")
     lidar_path = os.path.join(ms_data_path, "chm")
 
-    # Debug: Check what actually exists
-    print(f"Checking paths in: {ms_data_path}")
-    print(f"  wvimg exists: {os.path.exists(wvimg_path)}")
-    print(f"  dem exists: {os.path.exists(dem_path)}")
-    print(f"  lidar exists: {os.path.exists(lidar_path)}")
-    
-    # List what's actually in the parent directory
-    if os.path.exists(ms_data_path):
-        print(f"  Contents of {ms_data_path}: {os.listdir(ms_data_path)}")
-    
-    # Check if wvimg exists and has files
-    if not os.path.isdir(wvimg_path):
-        print(f"WARNING: wvimg directory does not exist at {wvimg_path}")
-        print(f"Skipping renameTiles - this might be expected for inference mode")
-        return  # Just return instead of raising an error
-    
-    wvimg_files = os.listdir(wvimg_path)
-    if not wvimg_files:
-        print(f"WARNING: wvimg directory is empty at {wvimg_path}")
-        return
-    
-    print(f"  wvimg contains {len(wvimg_files)} files")
-    
-    # Check if dem exists
-    if not os.path.isdir(dem_path):
-        print(f"WARNING: dem directory does not exist at {dem_path}")
-        return
-    
-    # lidar_path is optional (not used in inference)
-    lidar_exists = os.path.isdir(lidar_path)
-
     # Helper to rename or symlink tiles in target_dir based on wvimg
     def process_against_wvimg(target_dir):
-        if not os.path.isdir(target_dir):
-            print(f"Warning: Directory does not exist, skipping: {target_dir}")
-            return
-            
         for wvimg_file in os.listdir(wvimg_path):
             if '_' not in wvimg_file:
+                print('_ not in wvimg_file')
                 continue
 
             tile_id, rest = wvimg_file.split('_', 1)
             reference_name = f"{tile_id}_{rest}"
+            # Find matching tiles in DEM or lidar that include the tile_id
             matches = [f for f in os.listdir(target_dir) if rest in f]
 
             for match in matches:
@@ -1475,25 +1460,28 @@ def renameTiles(ms_data_path):
 
                 underscore_count = match.count('_')
 
+                # If not renamed: do so
                 if underscore_count == 1:
                     new_name = f"{tile_id}_{match}"
                     new_path = os.path.join(target_dir, new_name)
                     os.rename(match_path, new_path)
 
+                # If already renamed: make symlink to avoid duplicates
                 elif underscore_count >= 2:
                     existing_file = match_path
                     base_name = '_'.join(match.split('_')[1:])
                     symlink_name = os.path.join(target_dir, f"{tile_id}_{base_name}")
                     if not os.path.exists(symlink_name):
+                        # Create relative symlink
                         link_target = os.path.relpath(existing_file, os.path.dirname(symlink_name))
                         os.symlink(link_target, symlink_name)
 
     # Process DEM and lidar using wvimg as reference
     process_against_wvimg(dem_path)
-    if lidar_exists:
+    # Only rename lidar data if it exists (not inference)
+    if os.path.isdir(lidar_path):
         process_against_wvimg(lidar_path)
-        
-        
+
     # # Clean up any files in DEM and lidar that don't have exactly 2 underscores
     # for cleanup_dir in [dem_path, lidar_path]:
     #     for fname in os.listdir(cleanup_dir):
@@ -1501,9 +1489,14 @@ def renameTiles(ms_data_path):
     #         if os.path.isfile(full_path) and fname.count('_') != 2:
     #             os.remove(full_path)
 
-def makeLists(base_dir: str, site):
+def makeLists(base_dir: str, site, random_seed=42):
+    """
+    Args:
+        base_dir: Base directory containing subdirectories
+        site: Site name for output files
+        random_seed: Seed for random number generator (default=42)
+    """
     # Define the subdirectories
-    # subdirs = ['dem', 'wvimg', 'lidar']
     subdirs = ['dem', 'chm', 'wvimg']
     
     # Get the set of files for each subdirectory
@@ -1518,9 +1511,12 @@ def makeLists(base_dir: str, site):
     # Find the intersection of all file sets
     common_files = set.intersection(*file_sets)
     
-    # Convert to list and shuffle
-    common_files_list = list(common_files)
+    # IMPORTANT: Sort first to ensure consistent order, THEN shuffle
+    common_files_list = sorted(list(common_files))
     print(f'size of set intersection: {len(common_files_list)}')
+    
+    # Set random seed and shuffle
+    random.seed(random_seed)
     random.shuffle(common_files_list)
     
     # Calculate split sizes
@@ -2101,9 +2097,6 @@ def generate_chm_tiles(
 
     return results
 
-## Changed by Ryan and AIportal May 22nd 2026
-## I got an error when no date was present for some reason
-## Added error handling 
 def createLidarData(train_shp, catalog_geojson, epsg, lidarTilesPath, anchors_csv, projectPath):
     # find intersecting lidar scan(s)
 
@@ -2115,19 +2108,7 @@ def createLidarData(train_shp, catalog_geojson, epsg, lidarTilesPath, anchors_cs
     anchors = pd.read_csv(anchors_csv)
     generate_chm_tiles(epsg=epsg, ept_urls=lidarScans, points_df=anchors, output_dir=lidarTilesPath, r_script_path=pathToRScript)
     
-    # Safely extract years from URLs, skipping those without valid years
-    years = []
-    for u in lidarScans:
-        matches = re.findall(r'(?<!\d)(?:19|20)\d{2}(?!\d)', u)
-        if matches:  # Only process if we found at least one year
-            years.append(int(matches[-1]))
-        else:
-            print(f"Warning: No year found in URL: {u}")
-    
-    if not years:
-        raise ValueError("Could not extract year information from any lidar scan URLs")
-    
-    alignmentYear = round(sum(years) / len(years), 1)
+    alignmentYear = round(sum(int(re.findall(r'(?<!\d)(?:19|20)\d{2}(?!\d)', u)[-1]) for u in lidarScans) / len(lidarScans), 1)
 
     return alignmentYear
 
@@ -2136,7 +2117,7 @@ def merge_chm_tiles(
     input_folder: str,
     output_tif: str,
     b: float = 16.0,      # meters: feather fully "on" by b meters from an edge
-    c: float = 4.0,       # meters: fully "off" within c meters of an edge
+    c: float = None,       # meters: fully "off" within c meters of an edge
     nodata: float = -9999 # output nodata
 ):
     """
@@ -2148,6 +2129,10 @@ def merge_chm_tiles(
 
     Assumes all inputs share CRS and pixel size (square pixels).
     """
+
+    if c is None:
+        c = b / 4.0
+
     tif_paths = sorted(glob(os.path.join(input_folder, "*.tif")))
     if not tif_paths:
         raise ValueError(f"No GeoTIFFs found in {input_folder}")
@@ -2253,7 +2238,7 @@ def merge_tiles_with_avg_height_feathered(
     output_tif: str,
     threshold: float = 2.0,  # keep only pixels > threshold when computing each tile's average
     b: float = 16.0,         # meters: weight ramps up to 1 by this distance from edges
-    c: float = 4.0,          # meters: completely discard within this distance of edges
+    c: float = None,          # meters: completely discard within this distance of edges
     nodata: float = -9999.0, # output NoData
     exclude_edges_in_average: bool = True  # ignore the outer c m when computing per-tile averages
 ):
@@ -2265,6 +2250,9 @@ def merge_tiles_with_avg_height_feathered(
     If `exclude_edges_in_average` is True, pixels within `c` meters of any tile edge
     are NOT used when computing each tile's average (to avoid edge artifacts).
     """
+
+    if c is None:
+        c = b / 4.0
 
     tif_paths = sorted(glob(os.path.join(input_folder, "*.tif")))
     if not tif_paths:

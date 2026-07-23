@@ -1,4 +1,4 @@
-name: satchm
+name: SatCHMenv
 
 channels:
   - conda-forge
@@ -12,6 +12,10 @@ dependencies:
   - pandas
   - scikit-learn
   - python-dotenv
+  - hdf5storage
+
+  # --- Torch ---
+  - pytorch-lightning
 
   # --- Geospatial / LiDAR ---
   - gdal

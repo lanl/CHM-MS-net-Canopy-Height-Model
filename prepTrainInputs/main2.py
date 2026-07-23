@@ -6,8 +6,7 @@ This program was produced under U.S. Government contract 89233218CNA000001 for L
 import os
 from dotenv import load_dotenv
 import shutil
-import main2Utils as utils
-import main1Utils as m1Utils
+import utils
 import time
 
 load_dotenv()
@@ -35,7 +34,7 @@ utils.checkCRS(wvimgMergedPath, epsg)
 print('Saving wvimg metadata')
 metadataPath = os.path.join(project_path, 'downloads', site, 'metadata', 'DGTilesMetadata.json')
 os.makedirs(os.path.dirname(metadataPath), exist_ok=True)
-utils.saveWvimgMetadata(wvimgPath=pathToWvimg, savePath=metadataPath, wvimgMergedPath=wvimgMergedPath)
+utils.saveWvimgMetadata(wvimgPath=pathToWvimg, savePath=metadataPath, prewvimgPath=wvimgMergedPath)
 print(f'Saved metadata to: {metadataPath}')
 
 # generate sensor and solar tiles
