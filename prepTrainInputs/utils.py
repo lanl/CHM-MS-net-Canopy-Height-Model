@@ -2108,7 +2108,20 @@ def createLidarData(train_shp, catalog_geojson, epsg, lidarTilesPath, anchors_cs
     anchors = pd.read_csv(anchors_csv)
     generate_chm_tiles(epsg=epsg, ept_urls=lidarScans, points_df=anchors, output_dir=lidarTilesPath, r_script_path=pathToRScript)
     
-    alignmentYear = round(sum(int(re.findall(r'(?<!\d)(?:19|20)\d{2}(?!\d)', u)[-1]) for u in lidarScans) / len(lidarScans), 1)
+    # Safely extract years from URLs, skipping those without valid years
+    years = []
+    for u in lidarScans:
+        year_matches = re.findall(r'(?<!\d)(?:19|20)\d{2}(?!\d)', u)
+        if year_matches:
+            years.append(int(year_matches[-1]))
+        else:
+            print(f"Warning: Could not extract year from URL: {u}")
+    
+    if years:
+        alignmentYear = round(sum(years) / len(years), 1)
+    else:
+        print("Warning: No years found in lidar scan URLs. Using default year 2020.")
+        alignmentYear = 2020
 
     return alignmentYear
 
