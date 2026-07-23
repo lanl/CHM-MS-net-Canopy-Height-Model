@@ -1,4 +1,7 @@
 .env
+.env*
+command_reference.md
+daily_notes.md
 *.zip
 *.ckpt
 *.tif
