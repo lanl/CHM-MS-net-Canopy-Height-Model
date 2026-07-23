@@ -1,5 +1,6 @@
 .env
 .env*
+command_reference.md
 *.zip
 *.ckpt
 *.tif
