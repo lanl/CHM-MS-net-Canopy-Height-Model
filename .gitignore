@@ -1,5 +1,6 @@
 .env
 .env*
+.clinerules
 command_reference.md
 daily_notes.md
 *.zip
