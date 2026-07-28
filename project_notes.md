@@ -602,7 +602,15 @@ python infer/main.py --site ws
 3. Migrate all sites
 4. Eventually deprecate `.env` site variable
 
-**Status:** 💡 Proposed - Awaiting developer approval for implementation
+**Status:** ✅ IMPLEMENTED (2026-07-24) - Ready for Testing
+
+**Implementation Details:**
+- All 4 scripts updated with `--site` flag support
+- Site-specific model directories created automatically
+- Backward compatible with existing `.env` workflow
+- See `SITE_FLAG_IMPLEMENTATION.md` for complete guide
+
+**Testing Status:** 🧪 Pending user testing on multiple sites
 
 ---
 
