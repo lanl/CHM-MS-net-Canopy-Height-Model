@@ -263,4 +263,6 @@ INF_chm_pred_merged
 
 NOTE: you may see some edge effects in the merge between tiles. To soften these, increase the `FEATHER_CONST` value on line 39 of infer/main.py
 
+If tree structure looks good but heights look off, consider adjusting the option parameter on line 202 from `mean` to `max`
+
 If you only followed the conda environment build and activation in Step 5.1 without the optional cloud2trees installation, your code will fail on the treelist generation step. This is OK, and you may use INF_chm_pred_merged as your final output. If cloud2trees was installed, the CHM raster will be segmented (may take a while), and your final output will appear at `{site}_INF_data/{site}_treelist.csv`.

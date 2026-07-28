@@ -2667,3 +2667,154 @@ def remove_rasters_with_nodata(folder_path, dry_run=True, extensions=(".tif", ".
         print(f"✅ Remaining rasters: {total_rasters - deleted}")
 
     return to_delete
+
+def scale_tif(
+    geojson_path: str,
+    input_lidar_tifs_folder_path: str,
+    pred_lidar_tif_path: str,
+    output_path: str = None,
+    option: str = "mean",
+    tile_size: int = 224
+) -> np.ndarray:
+    """
+    Post-process neural network LiDAR prediction by scaling it to match 
+    the statistical distribution of the input tiles.
+    
+    Parameters:
+    -----------
+    geojson_path : str
+        Path to GeoJSON defining the area of interest (in UTM coordinates)
+    input_lidar_tifs_folder_path : str
+        Path to folder containing the original input LiDAR tiles (tiles named as *_x_y.tif)
+    pred_lidar_tif_path : str
+        Path to the neural network's predicted LiDAR output
+    output_path : str, optional
+        Path to save the scaled output. If None, only returns the array.
+    option : str
+        Scaling method - either "mean" or "max"
+    tile_size : int
+        Size of tiles (default: 224)
+    
+    Returns:
+    --------
+    scaled_prediction : np.ndarray
+        The NN prediction scaled to match input statistics
+    """
+    
+    print("=" * 60)
+    print("Post-processing NN LiDAR Prediction")
+    print("=" * 60)
+    
+    # 1. Load GeoJSON and find center
+    gdf = gpd.read_file(geojson_path)
+    center = gdf.geometry.centroid.iloc[0]
+    center_x, center_y = center.x, center.y
+    print(f"\nArea of interest center: ({center_x:.2f}, {center_y:.2f})")
+    
+    # 2. Find 4 closest tile coordinates (divisible by tile_size)
+    base_x = int(center_x // tile_size) * tile_size
+    base_y = int(center_y // tile_size) * tile_size
+    
+    tile_coords = [
+        (base_x, base_y),
+        (base_x + tile_size, base_y),
+        (base_x, base_y + tile_size),
+        (base_x + tile_size, base_y + tile_size)
+    ]
+    print(f"Reference tile coordinates: {tile_coords}")
+    
+    # 3. Find the corresponding input tile files
+    folder = Path(input_lidar_tifs_folder_path)
+    tile_paths = []
+    
+    for x, y in tile_coords:
+        pattern = f"*_{x}_{y}.tif"
+        matching_files = list(folder.glob(pattern))
+        
+        if matching_files:
+            tile_paths.append(str(matching_files[0]))
+        else:
+            print(f"⚠️  Warning: No file found for tile ({x}, {y})")
+    
+    if len(tile_paths) == 0:
+        raise FileNotFoundError(
+            f"No matching input tile files found in {input_lidar_tifs_folder_path}!"
+        )
+    
+    print(f"\nFound {len(tile_paths)} input tiles:")
+    for path in tile_paths:
+        print(f"  - {Path(path).name}")
+    
+    # 4. Calculate statistics from the input tiles
+    input_means = []
+    input_maxs = []
+    
+    for tile_path in tile_paths:
+        with rasterio.open(tile_path) as src:
+            data = src.read(1)
+            # Filter out nodata values
+            valid_data = data[data != src.nodata] if src.nodata is not None else data
+            valid_data = valid_data[~np.isnan(valid_data)]
+            
+            if len(valid_data) > 0:
+                tile_mean = np.mean(valid_data)
+                tile_max = np.max(valid_data)
+                input_means.append(tile_mean)
+                input_maxs.append(tile_max)
+                print(f"    {Path(tile_path).name}: mean={tile_mean:.2f}, max={tile_max:.2f}")
+    
+    # 5. Aggregate statistics across input tiles
+    avg_input_mean = np.mean(input_means)
+    avg_input_max = np.max(input_maxs)
+    
+    print(f"\nInput tiles aggregated stats:")
+    print(f"  - Mean height: {avg_input_mean:.2f}")
+    print(f"  - Max height: {avg_input_max:.2f}")
+    
+    # 6. Load NN prediction and calculate its statistics
+    with rasterio.open(pred_lidar_tif_path) as src:
+        pred_data = src.read(1)
+        pred_profile = src.profile.copy()
+        pred_nodata = src.nodata
+        
+        # Filter out nodata values
+        valid_pred = pred_data[pred_data != pred_nodata] if pred_nodata is not None else pred_data
+        valid_pred = valid_pred[~np.isnan(valid_pred)]
+        
+        pred_mean = np.mean(valid_pred)
+        pred_max = np.max(valid_pred)
+    
+    print(f"\nNN prediction stats:")
+    print(f"  - Mean height: {pred_mean:.2f}")
+    print(f"  - Max height: {pred_max:.2f}")
+    
+    # 7. Calculate scale factor
+    if option.lower() == "mean":
+        scale_factor = avg_input_mean / pred_mean
+        print(f"\nScaling by MEAN ratio: {scale_factor:.4f}")
+    elif option.lower() == "max":
+        scale_factor = avg_input_max / pred_max
+        print(f"\nScaling by MAX ratio: {scale_factor:.4f}")
+    else:
+        raise ValueError(f"Invalid option '{option}'. Must be 'mean' or 'max'.")
+    
+    # 8. Apply scaling to NN prediction
+    scaled_prediction = pred_data * scale_factor
+    
+    # Calculate scaled statistics for verification
+    valid_scaled = scaled_prediction[scaled_prediction != pred_nodata] if pred_nodata is not None else scaled_prediction
+    valid_scaled = valid_scaled[~np.isnan(valid_scaled)]
+    print(f"\nScaled prediction stats:")
+    print(f"  - Mean height: {np.mean(valid_scaled):.2f}")
+    print(f"  - Max height: {np.max(valid_scaled):.2f}")
+    
+    # 9. Save if output path is provided
+    if output_path:
+        with rasterio.open(output_path, 'w', **pred_profile) as dst:
+            dst.write(scaled_prediction, 1)
+        print(f"\n✓ Saved scaled prediction to: {output_path}")
+    
+    print("\n" + "=" * 60)
+    print(f"✓ Post-processing complete! Scale factor: {scale_factor:.4f}")
+    print("=" * 60)
+    

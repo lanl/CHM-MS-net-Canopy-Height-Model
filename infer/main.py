@@ -77,6 +77,7 @@ prewvimgPath = os.path.join(inf_data_path, 'prewvimg')
 metadataPath = os.path.join(project_path, 'downloads', site, 'metadata', 'DGTilesMetadata.json')
 outputRasterPath = os.path.join(inf_data_path, 'INF_chm_pred_merged.tif')
 croppedOutputRasterPath = os.path.join(inf_data_path, f'{site}_merged_CHM_inf.tif')
+scaledOutputRasterPath = os.path.join(inf_data_path, f'{site}_final_CHM.tif')
 
 try:
     # SITE-SPECIFIC weight selection - THIS IS THE KEY CHANGE!
@@ -226,6 +227,13 @@ print(f'Merged chm tiles, saved merged raster to {outputRasterPath}')
 print('Cropping predicted CHM tif back to original shape')
 utils.cropTif(inputTif=outputRasterPath, shp=inferenceShpPath, outputTif=croppedOutputRasterPath, epsg=epsg)
 print(f'Cropped CHM tif, saved to {croppedOutputRasterPath}')
+
+####### SCALE RASTER WITH RESPECT TO TRAINING DATA #######
+
+print('Scaling predicted CHM tif with respect to training data CHM')
+training_chm_path = os.path.join(project_path, f'{site}_data', 'chm')
+utils.scale_tif(geojson_path=inf_shp_output_path, input_lidar_tifs_folder_path=training_chm_path, pred_lidar_tif_path=croppedOutputRasterPath, output_path=scaledOutputRasterPath, option='mean')
+print(f'Scaled CHM tif, saved to {scaledOutputRasterPath}')
 
 ############# GENERATE TREELIST ####################
 
