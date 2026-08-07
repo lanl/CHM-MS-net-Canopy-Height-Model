@@ -1,0 +1,40 @@
+name: SatCHMenv
+channels:
+  - conda-forge
+channel_priority: strict
+dependencies:
+  - python=3.12
+  - pip
+
+  # core scientific
+  - numpy
+  - scipy
+  - pandas
+  - scikit-learn
+
+  # geospatial (keep together on conda-forge)
+  - gdal
+  - rasterio
+  - geopandas
+  - shapely
+  - pyproj
+
+  # xarray/dask stack (common in this env)
+  - xarray
+  - dask
+
+  # viz (since hvplot etc are in the repo env)
+  - hvplot
+  - holoviews
+  - panel
+
+  - pip:
+      - lightning
+      - pytorch-lightning
+      - maxar-platform
+      # torch choice:
+      # either install torch via conda-forge/pytorch channels,
+      # or keep pip torch but avoid pinning CUDA wheels unless you know the server setup
+      - torch
+      - torchvision
+      - torchaudio

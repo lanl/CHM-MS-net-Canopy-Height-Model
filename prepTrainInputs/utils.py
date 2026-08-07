@@ -34,7 +34,12 @@ import traceback
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import pdal
+try:
+    import pdal
+    PDAL_AVAILABLE = True
+except ImportError:
+    PDAL_AVAILABLE = False
+    pdal = None
 import rasterio
 import requests
 from PIL import Image
@@ -1008,7 +1013,11 @@ def checkCRS(directory, epsg):
                 print(f"EPSG code for {filename} is correct: {actualEPSG}")
 
 def cropTif(inputTif, shp, outputTif, epsg):
-    # Load the lidar shapefile
+    """
+    Crop a raster to the bounding box of a shapefile using rasterio.
+    Uses rasterio instead of gdal_translate to avoid GDAL version conflicts.
+    """
+    # Load the shapefile
     lidar_shape = gpd.read_file(shp)
 
     # Check the CRS
@@ -1024,25 +1033,30 @@ def cropTif(inputTif, shp, outputTif, epsg):
 
     print(f'inputTif: {inputTif}')
 
-    # First, crop the raster to the bounding box
-    cropCmd = [
-        "gdal_translate", "-projwin",
-        str(minx), str(maxy), str(maxx), str(miny),
-        inputTif, outputTif
-    ]
-    subprocess.run(cropCmd, check=True)
-
-    # # Then, perform the mask on the cropped raster
-    # warpCmd = [
-    #     "gdalwarp", "-overwrite", "-of", "GTiff",
-    #     "-tr", "0.5", "-0.5", "-tap",
-    #     "-cutline", shp,
-    #     inputTif, outputTif
-    # ]
-    # subprocess.run(warpCmd, check=True)
-
-    # Remove the temporary cropped file
-    # os.remove("temp_cropped.tif")
+    # Crop the raster using rasterio
+    with rasterio.open(inputTif) as src:
+        # Create window from bounds
+        window = from_bounds(minx, miny, maxx, maxy, src.transform)
+        
+        # Read the data within the window
+        data = src.read(window=window)
+        
+        # Calculate the transform for the cropped area
+        transform = src.window_transform(window)
+        
+        # Update metadata
+        profile = src.profile.copy()
+        profile.update({
+            'height': window.height,
+            'width': window.width,
+            'transform': transform
+        })
+        
+        # Write the cropped raster
+        with rasterio.open(outputTif, 'w', **profile) as dst:
+            dst.write(data)
+    
+    print(f'Cropped raster saved to: {outputTif}')
 
 def saveWvimgMetadata(wvimgPath, savePath, prewvimgPath):
     metadata_dict = {}
@@ -1907,6 +1921,12 @@ def laz(
     """
     Fetch a buffered LAZ for a 256x256 m tile whose UPPER-LEFT is (x, y) in UTM.
     """
+    if not PDAL_AVAILABLE:
+        raise ImportError(
+            "PDAL is required for LiDAR processing but is not installed. "
+            "Install it with: conda install -c conda-forge pdal python-pdal"
+        )
+    
     utm = f"EPSG:{epsg}"
     ept_crs = "EPSG:3857"
 
@@ -2108,7 +2128,20 @@ def createLidarData(train_shp, catalog_geojson, epsg, lidarTilesPath, anchors_cs
     anchors = pd.read_csv(anchors_csv)
     generate_chm_tiles(epsg=epsg, ept_urls=lidarScans, points_df=anchors, output_dir=lidarTilesPath, r_script_path=pathToRScript)
     
-    alignmentYear = round(sum(int(re.findall(r'(?<!\d)(?:19|20)\d{2}(?!\d)', u)[-1]) for u in lidarScans) / len(lidarScans), 1)
+    # Safely extract years from URLs, skipping those without valid years
+    years = []
+    for u in lidarScans:
+        year_matches = re.findall(r'(?<!\d)(?:19|20)\d{2}(?!\d)', u)
+        if year_matches:
+            years.append(int(year_matches[-1]))
+        else:
+            print(f"Warning: Could not extract year from URL: {u}")
+    
+    if years:
+        alignmentYear = round(sum(years) / len(years), 1)
+    else:
+        print("Warning: No years found in lidar scan URLs. Using default year 2020.")
+        alignmentYear = 2020
 
     return alignmentYear
 

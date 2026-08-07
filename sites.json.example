@@ -1,0 +1,26 @@
+{
+  "site_code": {
+    "full_name": "Full Site Name",
+    "epsg": 32613,
+    "inference_shape": "site_area_32613.geojson",
+    "openTopoAPIkey": "your_opentopography_api_key_here",
+    "notes": "Optional notes about the site",
+    "customTrainShpPath": "/optional/path/to/custom/training/shape.geojson",
+    "customLidarTifPath": "/optional/path/to/custom/lidar.tif",
+    "maxarAPIkey": "optional_maxar_api_key"
+  },
+  "ws": {
+    "full_name": "Wesner Springs",
+    "epsg": 32613,
+    "inference_shape": "wesner_springs_area_32613.geojson",
+    "openTopoAPIkey": "your_api_key_here",
+    "notes": "Example site configuration"
+  },
+  "qm": {
+    "full_name": "Quemazon",
+    "epsg": 32613,
+    "inference_shape": "quemazon_area_32613.geojson",
+    "openTopoAPIkey": "your_api_key_here",
+    "notes": "Example site configuration"
+  }
+}

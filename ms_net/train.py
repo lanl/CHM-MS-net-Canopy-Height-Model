@@ -8,10 +8,12 @@ The main trainer script for MS-net.
 """
 from glob import glob as gb
 import os
+import argparse
 from dotenv import load_dotenv, find_dotenv
 import torch
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+from pytorch_lightning.loggers import TensorBoardLogger
 from multiprocessing import freeze_support
 
 from network_2D_lightning import MS_Net
@@ -143,7 +145,22 @@ def load_or_create_model(params, net_dict):
 
     return model
 
-def setup_trainer(params):
+def setup_trainer(params, site):
+    """
+    Setup PyTorch Lightning trainer with site-specific logging.
+    
+    Parameters
+    __________
+    params : namespace
+        training parameters
+    site : str
+        site code (e.g., 'ws', 'lm', 'qm')
+    
+    Returns
+    _______
+    Trainer : pytorch_lightning.Trainer
+        configured trainer with site-specific model directory
+    """
     cbs = [
         # saves best model based on val_loss
         ModelCheckpoint(
@@ -168,10 +185,21 @@ def setup_trainer(params):
             patience=9999
         )
     ] 
+    
+    # Create site-specific logger - THIS IS THE KEY CHANGE!
+    # Models will be saved to: lightning_logs/{site}_model/version_0/, version_1/, etc.
+    logger = TensorBoardLogger(
+        save_dir="lightning_logs",
+        name=f"{site}_model",
+        version=None  # auto-increment version within this site's directory
+    )
+    
+    print(f"✓ Models will be saved to: lightning_logs/{site}_model/")
 
     return Trainer(
         max_epochs=params.max_epochs,
         callbacks=cbs,
+        logger=logger,  # Add the site-specific logger
         plugins=None,
         precision="16-mixed",
         devices=1,
@@ -179,8 +207,20 @@ def setup_trainer(params):
         log_every_n_steps=10,
     )
 
-def train_main(data_path, NORM_CONST):
-    directory, site = setup_environment()
+def train_main(data_path, NORM_CONST, site):
+    """
+    Main training function.
+    
+    Parameters
+    __________
+    data_path : str
+        path to training data
+    NORM_CONST : float
+        normalization constant for CHM
+    site : str
+        site code for site-specific model saving
+    """
+    directory, env_site = setup_environment()
     params = setup_params(data_path, site)
     net_dict = setup_net_dict(params)
     model = load_or_create_model(params, net_dict)
@@ -190,7 +230,7 @@ def train_main(data_path, NORM_CONST):
     train_dataloader = get_dataloader(net_dict, ['train'], data_path=data_path, NORM_CONST=NORM_CONST)
     val_dataloader = get_dataloader(net_dict, ['val'], data_path=data_path, NORM_CONST=NORM_CONST)
 
-    trainer = setup_trainer(params)
+    trainer = setup_trainer(params, site)  # Pass site to setup_trainer
     #trainer.fit(model, train_dataloader, val_dataloader['val'])
     
     try:
@@ -202,11 +242,30 @@ def train_main(data_path, NORM_CONST):
     
 def main():
     # freeze_support()
-    #TODO: Make these take args
-    NORM_CONST = 46
-    site = os.getenv('site')
+    # Parse arguments using ms_parser (includes --site flag)
+    params = parse_args()
+    
+    # Get site from command line or fall back to .env
+    if params.site:
+        site = params.site
+        print(f"✓ Using site from command line: {site}")
+    else:
+        site = os.getenv('site')
+        if not site:
+            raise ValueError("Site must be specified via --site flag or in .env file")
+        print(f"✓ Using site from .env file: {site}")
+    
+    # Validate that site data exists
     data_path = os.path.abspath(os.path.join(os.getcwd(), '..', '..', f'{site}_data'))
-    train_main(data_path = data_path, NORM_CONST = NORM_CONST)
+    if not os.path.exists(data_path):
+        raise ValueError(f"Data directory not found: {data_path}\n"
+                        f"Run data preparation for site '{site}' first.")
+    
+    print(f"✓ Data directory found: {data_path}")
+    
+    # Use norm_const from params (with underscore, not hyphen)
+    NORM_CONST = getattr(params, 'norm_const', 46)
+    train_main(data_path=data_path, NORM_CONST=NORM_CONST, site=site)
     
 if __name__ == '__main__':
     main()
