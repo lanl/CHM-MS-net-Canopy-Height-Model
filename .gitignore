@@ -12,7 +12,6 @@ daily_notes.md
 \downloads
 
 # Environment files
-.env*
 *.env
 
 # Log files
@@ -25,3 +24,7 @@ lightning_logs/
 
 # Personal environment files
 *_mod.yml
+
+# Model symlinks (actual models stored outside repo)
+ms_net/lightning_logs/*_model
+
