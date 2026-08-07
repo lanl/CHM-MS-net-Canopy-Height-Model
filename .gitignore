@@ -1,5 +1,6 @@
 .env
 .env*
+sites.json
 .clinerules
 command_reference.md
 daily_notes.md

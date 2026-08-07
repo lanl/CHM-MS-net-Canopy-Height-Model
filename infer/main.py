@@ -25,6 +25,8 @@ import time
 parser = argparse.ArgumentParser(description='Run SatCHM inference for a specific site')
 parser.add_argument('--site', type=str, required=False,
                    help='Site code (e.g., ws, lm, qm). Overrides .env file if provided.')
+parser.add_argument('--scale', type=str, default='mean', choices=['mean', 'max'],
+                   help='Scaling method for output CHM: "mean" or "max" (default: mean)')
 parser.add_argument('--norm-const', type=float, default=46,
                    help='Normalization constant for CHM data (default: 46)')
 parser.add_argument('--feather-const', type=int, default=40,
@@ -58,8 +60,11 @@ maxarAPIkey = os.getenv('maxarAPIkey')
 customLidarTifPath = os.getenv('customLidarTifPath')
 
 # Use command line args or defaults
+SCALING_METHOD = args.scale
 NORM_CONST = args.norm_const
 FEATHER_CONST = args.feather_const
+
+print(f"✓ Using scaling method: {SCALING_METHOD}")
 
 ############### PATH DEFINITIONS ###############
 inf_data_path = os.path.join(project_path, f'{site}_INF_data')
@@ -77,7 +82,6 @@ prewvimgPath = os.path.join(inf_data_path, 'prewvimg')
 metadataPath = os.path.join(project_path, 'downloads', site, 'metadata', 'DGTilesMetadata.json')
 outputRasterPath = os.path.join(inf_data_path, 'INF_chm_pred_merged.tif')
 croppedOutputRasterPath = os.path.join(inf_data_path, f'{site}_merged_CHM_inf.tif')
-scaledOutputRasterPath = os.path.join(inf_data_path, f'{site}_final_CHM.tif')
 
 try:
     # SITE-SPECIFIC weight selection - THIS IS THE KEY CHANGE!
@@ -110,13 +114,20 @@ try:
             matches.append((int(m.group(1)), p))
     if not matches:
         raise FileNotFoundError(f"No weights files found in {ckpt_dir}")
-    pathToWeights = max(matches, key=lambda t: t[0])[1]
+    
+    # Get the checkpoint with highest epoch number
+    checkpoint_epoch, pathToWeights = max(matches, key=lambda t: t[0])
     print(f"✓ Automatically selected weights for site '{site}': {pathToWeights}")
+    
+    # Create output filename with scaling method and checkpoint info
+    scaledOutputRasterPath = os.path.join(inf_data_path, f'{site}_infer_chm_{SCALING_METHOD}_epoch{checkpoint_epoch}.tif')
     
 except Exception as e:
     print(f"⚠️  Failed to automatically select weights: {e}")
     print("Using fallback weights path...")
     pathToWeights = ''
+    checkpoint_epoch = 'unknown'
+    scaledOutputRasterPath = os.path.join(inf_data_path, f'{site}_infer_chm_{SCALING_METHOD}_epoch{checkpoint_epoch}.tif')
 
 # OPTIONAL: Uncomment to manually override
 # pathToWeights = ''
@@ -230,9 +241,9 @@ print(f'Cropped CHM tif, saved to {croppedOutputRasterPath}')
 
 ####### SCALE RASTER WITH RESPECT TO TRAINING DATA #######
 
-print('Scaling predicted CHM tif with respect to training data CHM')
+print(f'Scaling predicted CHM tif with respect to training data CHM (method: {SCALING_METHOD})')
 training_chm_path = os.path.join(project_path, f'{site}_data', 'chm')
-utils.scale_tif(geojson_path=inf_shp_output_path, input_lidar_tifs_folder_path=training_chm_path, pred_lidar_tif_path=croppedOutputRasterPath, output_path=scaledOutputRasterPath, option='mean')
+utils.scale_tif(geojson_path=inf_shp_output_path, input_lidar_tifs_folder_path=training_chm_path, pred_lidar_tif_path=croppedOutputRasterPath, output_path=scaledOutputRasterPath, option=SCALING_METHOD)
 print(f'Scaled CHM tif, saved to {scaledOutputRasterPath}')
 
 ############# GENERATE TREELIST ####################

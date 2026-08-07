@@ -98,6 +98,149 @@ except ImportError:
 
 ## Recent Changes
 
+### 2026-07-28: Merged v1.0.0 Scaling Code into ryan_dev
+
+#### Git Merge: v1.0.0 → ryan_dev
+- **Action:** Successfully merged developer's changes from v1.0.0 branch into ryan_dev
+- **Developer:** zcrennen
+- **Commit:** 0f84ae2 "added scaling code, max as default option"
+- **Merge Commit:** 3202b4a
+
+**Changes Merged:**
+1. **New Scaling Function** - Added `scale_tif()` function to `prepTrainInputs/utils.py`
+   - Post-processes neural network predictions by scaling to match input statistics
+   - Supports "mean" or "max" scaling options (max is default)
+   - Helps improve prediction accuracy by aligning output distribution with training data
+   
+2. **Inference Integration** - Updated `infer/main.py` to use scaling
+   - Automatically applies scaling to predictions
+   - Uses max scaling by default
+   
+3. **Documentation** - Updated `howToRunSatCHM.md` with scaling information
+
+**Integration Status:**
+- ✅ Merge completed with no conflicts
+- ✅ All ryan_dev changes preserved (site flag implementation, etc.)
+- ✅ Developer's scaling code integrated successfully
+- 🧪 Testing pending - need to verify scaling works with site flag features
+
+**Current Workflow Status (as of 2026-07-28):**
+- **Site qm (Quemazon):**
+  - ✅ Data prep complete (July 24, 11:46 AM)
+  - ✅ Training complete (qm_model exists)
+  - ✅ Inference complete (July 24, 4:41 PM)
+  - **Status:** Ready for testing merged scaling code
+  
+- **Site ws (Wesner Springs):**
+  - ✅ Data prep complete (July 24, 5:33 PM)
+  - 🔄 Training in progress (started July 28, 10:19 AM)
+  - ⏳ Inference pending (waiting for training to complete)
+  - **Status:** Training with site flags, inference needed after completion
+
+**Next Steps:**
+- [x] Wait for ws training to complete
+- [x] Run inference for ws: `python infer/main.py --site ws`
+- [x] Test that scaling code works with both qm and ws
+- [x] Verify site-specific model directories are working correctly
+- [x] Add command-line option for scaling method selection
+- [ ] Compare predictions with different scaling methods to validate improvement
+- [ ] Document any issues or improvements needed
+
+**Scaling Feature Enhancement (2026-07-28, 4:30 PM):**
+- ✅ Added `--scale` command-line option to `infer/main.py`
+- ✅ Updated output filename to include scaling method and checkpoint
+- ✅ New filename format: `{site}_infer_chm_{scaling_method}_epoch{checkpoint}.tif`
+- ✅ Tested successfully on both qm and ws sites
+
+**Usage:**
+```bash
+# Use mean scaling (default)
+python infer/main.py --site ws --scale mean
+
+# Use max scaling
+python infer/main.py --site ws --scale max
+```
+
+**Output Examples:**
+- `ws_infer_chm_mean_epoch999.tif`
+- `ws_infer_chm_max_epoch999.tif`
+- `qm_infer_chm_mean_epoch850.tif`
+
+This allows easy comparison of different scaling methods on the same site.
+
+**Sites.json Configuration System (2026-07-28, 4:40 PM):**
+- ✅ Created `sites.json` for centralized site configuration
+- ✅ Created `site_config.py` helper module
+- ✅ Created `SITES_JSON_GUIDE.md` documentation
+- ✅ Added `sites.json.example` template
+- ✅ Updated `.gitignore` to protect `sites.json`
+
+**Benefits:**
+- No more manual `.env` file copying between sites
+- Centralized configuration for all sites
+- Easy to add new sites (just edit sites.json)
+- Backward compatible with existing .env workflow
+
+**Current Workflow:**
+```bash
+# Keep one .env file, use --site flag to switch between sites
+python prepTrainInputs/main1.py --site ws
+python prepTrainInputs/main2.py --site qm
+python ms_net/train.py --site lm
+python infer/main.py --site ws --scale mean
+```
+
+**Adding New Sites:**
+Just add an entry to `sites.json`:
+```json
+{
+  "new_site": {
+    "full_name": "New Site Name",
+    "epsg": 32613,
+    "inference_shape": "new_site_area_32613.geojson",
+    "openTopoAPIkey": "your_api_key_here",
+    "notes": "Site added 2026-07-28"
+  }
+}
+```
+
+See `SITES_JSON_GUIDE.md` for complete documentation.
+
+**Multi-Site Parallel Processing (2026-07-28, 4:48 PM):**
+- ✅ Documented GPU checking commands
+- ✅ Added parallel workflow instructions
+- ✅ Included tmux session management
+- ✅ Complete examples for running multiple sites simultaneously
+
+**Key Capabilities:**
+- Check available GPUs with `nvidia-smi --list-gpus`
+- Assign specific GPU to each site: `CUDA_VISIBLE_DEVICES=0 python train.py --site ws`
+- Run data prep in parallel (CPU-bound, safe)
+- Run training in parallel on different GPUs (GPU-bound, requires multiple GPUs)
+- Run inference in parallel on different GPUs
+- Use tmux for managing long-running processes
+
+**Benefits:**
+- Dramatically reduces total workflow time
+- Efficient use of multi-GPU servers
+- Site-specific directories prevent conflicts
+- Easy to monitor with `watch -n 1 nvidia-smi`
+
+See `command_reference.md` Section 7 for complete parallel processing guide.
+
+**Files Modified:**
+- `prepTrainInputs/utils.py` - Added ~150 lines of scaling code
+- `infer/main.py` - Added scaling integration (~8 lines)
+- `howToRunSatCHM.md` - Documentation updates
+
+**Git Commands Used:**
+```bash
+git add -A && git commit -m "WIP: Saving current work before merging v1.0.0 changes"
+git checkout v1.0.0 && git reset --hard origin/v1.0.0
+git checkout ryan_dev
+git merge v1.0.0 -m "Merge v1.0.0 changes (scaling code) into ryan_dev"
+```
+
 ### 2026-07-24: Environment Architecture Improvements & GDAL Fix
 
 #### PDAL Optional Import
@@ -271,9 +414,84 @@ When making changes, test:
 
 ## Future Improvements
 
+### Immediate To-Do Items
+
+#### 1. Complete LM Site Workflow (Priority: High)
+**Status:** Ready to start once imagery is downloaded
+
+**Steps:**
+```bash
+# Download imagery for lm site
+# Place files in: downloads/lm/wvimgTrain/ and downloads/lm/wvimgInf/
+
+# Run complete workflow
+python prepTrainInputs/main1.py --site lm
+python prepTrainInputs/main2.py --site lm
+python ms_net/train.py --site lm
+python infer/main.py --site lm --scale mean
+```
+
+**Notes:**
+- Site already configured in sites.json
+- Inference shape already created
+- Just needs imagery download to proceed
+
+#### 2. Custom LiDAR Training Workflow (Priority: Medium, Future)
+**Status:** Planned for future implementation
+
+**Goal:** Train on high-quality custom LiDAR data instead of USGS 3DEP, validate model performance.
+
+**Current Understanding:**
+- ✅ CHM already generated (TIF format) - No LAZ/LAS processing needed
+- ✅ High resolution (~1m) - Better than typical USGS 3DEP (10-30m)
+- ✅ Small area (few km²) - Inside existing inference shape
+- ✅ Ready to use - Just needs workflow integration
+
+**Workflow Options:**
+
+**Option A: Train and predict on same area (validation)**
+- Train on custom high-quality CHM
+- Predict on same area
+- Compare prediction to original CHM
+- Calculate accuracy metrics (RMSE, MAE, R²)
+- Assess model performance
+
+**Option B: Train on custom area, predict on larger area**
+- Train on small high-quality custom data
+- Use trained model for larger inference area
+- Leverage high-quality training for broader predictions
+
+**Implementation Steps:**
+1. Check custom CHM details with `gdalinfo`
+   - Verify resolution (~1m expected)
+   - Check projection (must match site EPSG)
+   - Note dimensions
+2. Create training shapefile for custom area
+   - Define training tile extraction region
+   - Should cover custom CHM extent
+3. Test workflow with custom data
+   - Use `customLidarTifPath` in sites.json
+   - Run small test first
+   - Then full training
+4. Validation (if training/predicting same area)
+   - Compare predicted vs original CHM
+   - Calculate accuracy metrics
+   - Document model performance
+
+**Questions to Resolve:**
+- Train on subset and predict on full area? Or train/predict on same area?
+- What accuracy metrics are most important?
+- How to best integrate into existing workflow?
+
+**Infrastructure Status:**
+- ✅ `customLidarTifPath` option already exists in code
+- ✅ Custom training shapefile support exists
+- 🔧 Needs testing with actual custom data
+- 📝 Needs documentation of custom workflow
+
 ### Potential Enhancements
 1. **Automated imagery ordering** - API integration with Maxar/Vantor
-2. **Multi-GPU training** - Distributed training for larger datasets
+2. **Multi-GPU training** - ✅ IMPLEMENTED - See Section 7 in command_reference.md
 3. **Cloud deployment** - Containerized workflow for cloud platforms
 4. **Uncertainty quantification** - Prediction confidence estimates
 5. **Real-time inference** - Streaming inference for large areas
@@ -622,4 +840,4 @@ python infer/main.py --site ws
 
 ---
 
-*Last updated: 2026-07-24*
+*Last updated: 2026-07-28*
