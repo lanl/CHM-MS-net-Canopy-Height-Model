@@ -5,3 +5,5 @@
 *.csv
 *.pyc
 \downloads
+# Model symlinks (actual models stored outside repo)
+ms_net/lightning_logs/*_model
