@@ -10,3 +10,18 @@ daily_notes.md
 *.csv
 *.pyc
 \downloads
+
+# Environment files
+.env*
+*.env
+
+# Log files
+*.log
+main.log
+
+# Training outputs
+ms_net/lightning_logs/
+lightning_logs/
+
+# Personal environment files
+*_mod.yml
