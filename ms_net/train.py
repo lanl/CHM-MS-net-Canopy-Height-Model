@@ -39,6 +39,58 @@ def setup_environment():
     site = os.getenv('site')
     return directory, site
 
+def setup_model_storage(site):
+    """
+    Set up model storage outside the repo with symlink back to expected location.
+    
+    Parameters
+    __________
+    site : str
+        Site code (e.g., 'ws', 'qm', 'lm')
+    
+    Returns
+    _______
+    save_dir : str
+        Directory where models will be saved
+    """
+    import pathlib
+    
+    # Get the repo root (SatCHM directory)
+    repo_root = pathlib.Path(__file__).parent.parent.resolve()
+    
+    # Check if we're in the standard project structure
+    # Standard: /project/es14-stor/canopy/SatCHM/
+    parent_dir = repo_root.parent
+    
+    # Create models directory outside repo
+    models_dir = parent_dir / "models"
+    models_dir.mkdir(exist_ok=True)
+    
+    # Site-specific model directory outside repo
+    site_model_dir = models_dir / f"{site}_model"
+    
+    # Expected location inside repo
+    repo_lightning_logs = repo_root / "ms_net" / "lightning_logs"
+    repo_site_model = repo_lightning_logs / f"{site}_model"
+    
+    # If symlink doesn't exist, create it
+    if not repo_site_model.exists():
+        # Create the symlink
+        repo_site_model.symlink_to(site_model_dir, target_is_directory=True)
+        print(f"✓ Created symlink: {repo_site_model} -> {site_model_dir}")
+    elif not repo_site_model.is_symlink():
+        # If it's a real directory (not symlink), warn user
+        print(f"⚠ Warning: {repo_site_model} exists but is not a symlink.")
+        print(f"  Models will be saved inside repo. Consider moving to {site_model_dir}")
+        return "lightning_logs"  # Use default location
+    
+    print(f"✓ Models will be saved to: {site_model_dir}")
+    print(f"✓ Accessible via symlink: {repo_site_model}")
+    
+    # Return the parent directory for TensorBoardLogger
+    # Logger will create {save_dir}/{name}/version_X/
+    return str(models_dir)
+
 def setup_params(directory, site):
     """
     Description
@@ -186,15 +238,16 @@ def setup_trainer(params, site):
         )
     ] 
     
-    # Create site-specific logger - THIS IS THE KEY CHANGE!
-    # Models will be saved to: lightning_logs/{site}_model/version_0/, version_1/, etc.
+    # Set up model storage outside repo with symlink
+    model_save_dir = setup_model_storage(site)
+    
+    # Create site-specific logger
+    # Models will be saved to: /project/es14-stor/canopy/models/{site}_model/version_X/
     logger = TensorBoardLogger(
-        save_dir="lightning_logs",
+        save_dir=model_save_dir,
         name=f"{site}_model",
         version=None  # auto-increment version within this site's directory
     )
-    
-    print(f"✓ Models will be saved to: lightning_logs/{site}_model/")
 
     return Trainer(
         max_epochs=params.max_epochs,
