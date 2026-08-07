@@ -77,6 +77,12 @@ def parse_args(argv=None):
     parser.add_argument("--gpus", default=1, type=int)
     parser.add_argument("--num_workers", default=4, type=int)
     parser.add_argument("--num_nodes", default=1, type=int)
+    
+    # SITE MANAGEMENT
+    parser.add_argument("--site", type=str, required=False,
+                       help='Site code (e.g., ws, lm, qm). Overrides .env file if provided.')
+    parser.add_argument("--norm-const", type=float, default=46,
+                       help='Normalization constant for CHM data (default: 46)')
 
     # NOTE: parse provided argv if given; else parse from sys.argv
     args = parser.parse_args(argv)

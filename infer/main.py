@@ -15,28 +15,56 @@ from ms_net.infer import run_inference
 import shutil 
 import os
 import re
+import argparse
 # import geopandas as gpd
 from dotenv import load_dotenv
 import time
 
 ################### SETUP #################
+# Parse command line arguments FIRST
+parser = argparse.ArgumentParser(description='Run SatCHM inference for a specific site')
+parser.add_argument('--site', type=str, required=False,
+                   help='Site code (e.g., ws, lm, qm). Overrides .env file if provided.')
+parser.add_argument('--scale', type=str, default='mean', choices=['mean', 'max'],
+                   help='Scaling method for output CHM: "mean" or "max" (default: mean)')
+parser.add_argument('--norm-const', type=float, default=46,
+                   help='Normalization constant for CHM data (default: 46)')
+parser.add_argument('--feather-const', type=int, default=40,
+                   help='Feathering constant for tile merging (default: 40)')
+args = parser.parse_args()
+
 # loading env variables
 load_dotenv()
 project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+# Get site from command line or fall back to .env
+if args.site:
+    site = args.site
+    print(f"✓ Using site from command line: {site}")
+else:
+    site = os.getenv('site')
+    if not site:
+        raise ValueError("Site must be specified via --site flag or in .env file")
+    print(f"✓ Using site from .env file: {site}")
+
+# Load other env variables
 chmPath = os.getenv('chmPath')
 chmReducedPath = os.getenv('chmReducedPath')
 shpPath = os.getenv('shpPath')
 epsg = int(os.getenv('epsg'))
-site = os.getenv('site')
 inferenceShpPath = os.getenv('inferenceShpPath')
 customTrainShpPath = os.getenv('customTrainShpPath')
 fp_path = os.getenv('fp_path')
 openTopoAPIkey = os.getenv('openTopoAPIkey')
 maxarAPIkey = os.getenv('maxarAPIkey')
 customLidarTifPath = os.getenv('customLidarTifPath')
-# TODO: Change this to be extracted directly from lidar data
-NORM_CONST = 46
-FEATHER_CONST = 40
+
+# Use command line args or defaults
+SCALING_METHOD = args.scale
+NORM_CONST = args.norm_const
+FEATHER_CONST = args.feather_const
+
+print(f"✓ Using scaling method: {SCALING_METHOD}")
 
 ############### PATH DEFINITIONS ###############
 inf_data_path = os.path.join(project_path, f'{site}_INF_data')
@@ -54,20 +82,29 @@ prewvimgPath = os.path.join(inf_data_path, 'prewvimg')
 metadataPath = os.path.join(project_path, 'downloads', site, 'metadata', 'DGTilesMetadata.json')
 outputRasterPath = os.path.join(inf_data_path, 'INF_chm_pred_merged.tif')
 croppedOutputRasterPath = os.path.join(inf_data_path, f'{site}_merged_CHM_inf.tif')
-scaledOutputRasterPath = os.path.join(inf_data_path, f'{site}_final_CHM.tif')
 
 try:
-    # code that selects the latest weights set
-    # example file path: project_path/SatCHM/ms_net/lightning_logs/version_0/epoch-epoch=999.ckpt
+    # SITE-SPECIFIC weight selection - THIS IS THE KEY CHANGE!
+    # Looks for models in: lightning_logs/{site}_model/version_X/checkpoints/
     weightsRoot = os.path.join(project_path, 'SatCHM', 'ms_net', 'lightning_logs')
+    site_model_dir = os.path.join(weightsRoot, f"{site}_model")
+    
+    if not os.path.exists(site_model_dir):
+        raise FileNotFoundError(
+            f"No model directory found for site '{site}' at: {site_model_dir}\n"
+            f"Train a model for this site first using: python ms_net/train.py --site {site}"
+        )
+    
+    # Find the latest version for THIS site
     weightsVersion = max(
         (
-            os.path.join(weightsRoot, d)
-            for d in os.listdir(weightsRoot)
+            os.path.join(site_model_dir, d)
+            for d in os.listdir(site_model_dir)
             if d.startswith("version_")
         ),
         key=lambda p: int(p.split("_")[-1])
     )
+    
     ckpt_dir = Path(weightsVersion) / "checkpoints"
     epoch_re = re.compile(r"epoch=(\d+)\.ckpt$")
     matches = []
@@ -77,13 +114,20 @@ try:
             matches.append((int(m.group(1)), p))
     if not matches:
         raise FileNotFoundError(f"No weights files found in {ckpt_dir}")
-    pathToWeights = max(matches, key=lambda t: t[0])[1]
-    print(f"Automatically selected weights: {pathToWeights}")
+    
+    # Get the checkpoint with highest epoch number
+    checkpoint_epoch, pathToWeights = max(matches, key=lambda t: t[0])
+    print(f"✓ Automatically selected weights for site '{site}': {pathToWeights}")
+    
+    # Create output filename with scaling method and checkpoint info
+    scaledOutputRasterPath = os.path.join(inf_data_path, f'{site}_infer_chm_{SCALING_METHOD}_epoch{checkpoint_epoch}.tif')
     
 except Exception as e:
     print(f"⚠️  Failed to automatically select weights: {e}")
     print("Using fallback weights path...")
     pathToWeights = ''
+    checkpoint_epoch = 'unknown'
+    scaledOutputRasterPath = os.path.join(inf_data_path, f'{site}_infer_chm_{SCALING_METHOD}_epoch{checkpoint_epoch}.tif')
 
 # OPTIONAL: Uncomment to manually override
 # pathToWeights = ''
@@ -197,9 +241,9 @@ print(f'Cropped CHM tif, saved to {croppedOutputRasterPath}')
 
 ####### SCALE RASTER WITH RESPECT TO TRAINING DATA #######
 
-print('Scaling predicted CHM tif with respect to training data CHM')
+print(f'Scaling predicted CHM tif with respect to training data CHM (method: {SCALING_METHOD})')
 training_chm_path = os.path.join(project_path, f'{site}_data', 'chm')
-utils.scale_tif(geojson_path=inf_shp_output_path, input_lidar_tifs_folder_path=training_chm_path, pred_lidar_tif_path=croppedOutputRasterPath, output_path=scaledOutputRasterPath, option='mean')
+utils.scale_tif(geojson_path=inf_shp_output_path, input_lidar_tifs_folder_path=training_chm_path, pred_lidar_tif_path=croppedOutputRasterPath, output_path=scaledOutputRasterPath, option=SCALING_METHOD)
 print(f'Scaled CHM tif, saved to {scaledOutputRasterPath}')
 
 ############# GENERATE TREELIST ####################

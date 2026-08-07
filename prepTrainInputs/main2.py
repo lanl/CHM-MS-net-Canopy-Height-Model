@@ -4,18 +4,36 @@ This program was produced under U.S. Government contract 89233218CNA000001 for L
 """
 
 import os
+import argparse
 from dotenv import load_dotenv
 import shutil
 import utils
 import time
 
+# Parse command line arguments FIRST
+parser = argparse.ArgumentParser(description='Prepare training data (step 2) for a specific site')
+parser.add_argument('--site', type=str, required=False,
+                   help='Site code (e.g., ws, lm, qm). Overrides .env file if provided.')
+args = parser.parse_args()
+
 load_dotenv()
+
+# Get site from command line or fall back to .env
+if args.site:
+    site = args.site
+    print(f"✓ Using site from command line: {site}")
+else:
+    site = os.getenv('site')
+    if not site:
+        raise ValueError("Site must be specified via --site flag or in .env file")
+    print(f"✓ Using site from .env file: {site}")
+
+# Load other env variables
 pathToWvimg = os.getenv('wvimgFolderPath')
 project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 epsg = os.getenv('epsg')
 demPath = os.getenv('demPath')
 chmPath = os.getenv('chmPath')
-site = os.getenv('site')
 site_data_path = os.path.join(project_path, f'{site}_data')
 trainShpPath = os.getenv('trainShpPath')
 
@@ -23,6 +41,7 @@ trainShpPath = os.getenv('trainShpPath')
 print('Merging wvimg tiles')
 wvimgMergedPath = os.path.join(site_data_path, 'prewvimg')
 pathToWvimg = os.path.join(project_path, 'downloads', site, 'wvimgTrain')
+os.makedirs(wvimgMergedPath, exist_ok=True)
 utils.mergeTifs(pathToWvimg, wvimgMergedPath)
 print(f'Saved merged wvimg tiles to {wvimgMergedPath}')
 

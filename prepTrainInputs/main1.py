@@ -6,6 +6,7 @@ This program was produced under U.S. Government contract 89233218CNA000001 for L
 import os
 import time
 import shutil
+import argparse
 import geopandas as gpd
 from dotenv import load_dotenv
 import utils
@@ -13,15 +14,32 @@ import utils
 
 def main():
     ################### SETUP #################
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Prepare training data (step 1) for a specific site')
+    parser.add_argument('--site', type=str, required=False,
+                       help='Site code (e.g., ws, lm, qm). Overrides .env file if provided.')
+    args = parser.parse_args()
 
     # Load env variables
     load_dotenv()
     project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    
+    # Get site from command line or fall back to .env
+    if args.site:
+        site = args.site
+        print(f"✓ Using site from command line: {site}")
+    else:
+        site = os.getenv('site')
+        if not site:
+            raise ValueError("Site must be specified via --site flag or in .env file")
+        print(f"✓ Using site from .env file: {site}")
+    
+    # Load other env variables
     chmPath = os.getenv('chmPath')
     chmReducedPath = os.getenv('chmReducedPath')
     shpPath = os.getenv('shpPath')
     epsg = int(os.getenv('epsg'))
-    site = os.getenv('site')
     inferenceShpPath = os.getenv('inferenceShpPath')
     customTrainShpPath = os.getenv('customTrainShpPath')
     fp_path = os.getenv('fp_path')
@@ -38,10 +56,12 @@ def main():
     # Folder creations
     os.makedirs(site_data_path, exist_ok=True)
     os.makedirs(os.path.join(site_data_path, 'wvimg'), exist_ok=True)
-    print(f'CREATING FOLDER: {os.path.join(project_path, 'downloads', site, 'wvimgTrain')}')
-    print(f'CREATING FOLDER: {os.path.join(project_path, 'downloads', site, 'wvimgInf')}')
-    os.makedirs(os.path.join(project_path, 'downloads', site, 'wvimgTrain'), exist_ok=True)
-    os.makedirs(os.path.join(project_path, 'downloads', site, 'wvimgInf'), exist_ok=True)
+    wvimg_train_path = os.path.join(project_path, 'downloads', site, 'wvimgTrain')
+    wvimg_inf_path = os.path.join(project_path, 'downloads', site, 'wvimgInf')
+    print(f'CREATING FOLDER: {wvimg_train_path}')
+    print(f'CREATING FOLDER: {wvimg_inf_path}')
+    os.makedirs(wvimg_train_path, exist_ok=True)
+    os.makedirs(wvimg_inf_path, exist_ok=True)
 
 
     ############ PREPARE SHAPES AND ANCHORS #############

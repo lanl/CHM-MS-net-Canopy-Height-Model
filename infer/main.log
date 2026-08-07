@@ -1,0 +1,46 @@
+Automatically selected weights: /project/es14-stor/canopy/SatCHM/ms_net/lightning_logs/version_7/checkpoints/epoch-epoch=999.ckpt
+Creating set of tile anchors
+Saved tile anchors to /project/es14-stor/canopy/downloads/qm/infShape/qm_infAnchors.csv
+Requesting dem data from OpenTopography
+Saved dem data to: /project/es14-stor/canopy/downloads/qm/dem/qm_dem_INF_download.tif
+Reprojecting dem data. This will take a while...
+Saved reprojected dem data to: /project/es14-stor/canopy/downloads/qm/dem/qm_dem_INF_UTM.tif
+Tiling dem data
+Saved dem tiles to: /project/es14-stor/canopy/qm_INF_data/dem_prenorm
+Normalizing dem data from /project/es14-stor/canopy/qm_INF_data/dem_prenorm
+Saved normalized dem tiles to /project/es14-stor/canopy/qm_INF_data/dem
+Merging wvimg tiles
+No TIF files found in the subfolder: /project/es14-stor/canopy/downloads/qm/wvimgInf/unzipped_contents
+metadata_xml: /project/es14-stor/canopy/downloads/qm/wvimgInf/200012832619_01/200012832619_01_P001_PAN/22MAY28175511-P2AS-200012832619_01_P001.XML
+tileID: 10300100D3A6E100
+Merged and resampled TIF saved to: /project/es14-stor/canopy/qm_INF_data/prewvimg/10300100D3A6E100.tif
+EPSG code for 10300100D3A6E100.tif is correct: 32613
+Saved merged wvimg tiles to /project/es14-stor/canopy/qm_INF_data/prewvimg
+Saving wvimg metadata
+tileID: 10300100D3A6E100
+Saved metadata to: /project/es14-stor/canopy/downloads/qm/metadata/DGTilesMetadata.json
+Generating Sensor and Solar Tiles
+Saved sensor and solar tiles to: /project/es14-stor/canopy/qm_INF_data
+Tiling wvimg data for model partition
+Saved wvimg tiles to: /project/es14-stor/canopy/qm_INF_data/wvimg
+Renaming tiles
+Renamed input tiles, saved in /project/es14-stor/canopy/qm_INF_data
+Creating model lists
+Created model lists, saved in /project/es14-stor/canopy/qm_INF_data
+Running inference
+Searching for a GPU...
+True
+args.accelerator: gpu
+Model Arguments: Namespace(gpu_device=0, net_name='CHMer', num_scales=3, num_filters=8, f_mult=4, train=True, LR=0.0001, max_epochs=1000, min_epochs=10, steps=4, batch_size=32, accumulate_grad_batches=1, check_val_every_n_epoch=2, gradient_clip_val=1.0, num_model=0, rnd_data=False, training_size=657, validation_size=140, data_aug=False, data_loc='/project/es14-stor/canopy/qm_INF_data', seed=None, gpus=1, num_workers=4, num_nodes=1, accelerator='gpu', torch_version='2.3.0+cu121', code_version=0.00123, pc='PC')
+Filters per model: [128, 32, 8]
+  0%|          | 0/80 [00:00<?, ?it/s] 12%|█▎        | 10/80 [00:00<00:00, 93.52it/s] 25%|██▌       | 20/80 [00:00<00:00, 94.39it/s] 38%|███▊      | 30/80 [00:00<00:00, 94.65it/s] 50%|█████     | 40/80 [00:00<00:00, 94.77it/s] 62%|██████▎   | 50/80 [00:00<00:00, 94.84it/s] 75%|███████▌  | 60/80 [00:00<00:00, 95.03it/s] 88%|████████▊ | 70/80 [00:00<00:00, 94.85it/s]100%|██████████| 80/80 [00:00<00:00, 94.91it/s]100%|██████████| 80/80 [00:00<00:00, 94.77it/s]
+/home/rcrumley/.venvs/msnet-cu121/lib64/python3.11/site-packages/rasterio/windows.py:314: RasterioDeprecationWarning: The height, width, and precision parameters are unused, deprecated, and will be removed in 2.0.0.
+  warnings.warn(
+Ran inference, tiles saved to /project/es14-stor/canopy/qm_INF_data/chm_preds
+Merging chm tiles
+Merged chm tiles, saved merged raster to /project/es14-stor/canopy/qm_INF_data/INF_chm_pred_merged.tif
+Cropping predicted CHM tif back to original shape
+Shapefile is already in EPSG:32613
+inputTif: /project/es14-stor/canopy/qm_INF_data/INF_chm_pred_merged.tif
+Cropped raster saved to: /project/es14-stor/canopy/qm_INF_data/qm_merged_CHM_inf.tif
+Cropped CHM tif, saved to /project/es14-stor/canopy/qm_INF_data/qm_merged_CHM_inf.tif
