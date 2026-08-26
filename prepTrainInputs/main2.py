@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 import shutil
 import utils
 import time
+from site_config import load_site_config
 
 # Parse command line arguments FIRST
 parser = argparse.ArgumentParser(description='Prepare training data (step 2) for a specific site')
@@ -37,9 +38,16 @@ chmPath = os.getenv('chmPath')
 site_data_path = os.path.join(project_path, f'{site}_data')
 trainShpPath = os.getenv('trainShpPath')
 
+# FIXME: patch for using sites.json
+config = load_site_config(site)
+epsg = config['epsg']
+openTopoAPIkey = config['openTopoAPIkey']
+inferenceShpPath = config['inferenceShpPath']
+
 # merge wvimg (will take a while)
 print('Merging wvimg tiles')
 wvimgMergedPath = os.path.join(site_data_path, 'prewvimg')
+print(f"wvimgMergedPath: {wvimgMergedPath}")
 pathToWvimg = os.path.join(project_path, 'downloads', site, 'wvimgTrain')
 os.makedirs(wvimgMergedPath, exist_ok=True)
 utils.mergeTifs(pathToWvimg, wvimgMergedPath)

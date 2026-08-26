@@ -91,8 +91,19 @@ treelist_from_chm <- function(chm_tif, outdir = tempdir(), quiet = TRUE, min_cro
   r <- terra::rast(chm_tif)
   if (quiet) terra::sources(r)
 
+
+'''
+  added temdir local env reference to resolve the following Error:
+    {"ok":false,"error":"Error in file.path(tempdir, \"tile_.tif\"): promise already under evaluation: recursive default argument reference or earlier problems?\n"}
+'''
   print("Running raster2trees")
-  tl <- cloud2trees::raster2trees(chm_rast = r, outfolder = outdir, min_height = min_height, min_crown_area = min_crown_area, ...)
+  tl <- cloud2trees::raster2trees(
+    chm_rast = r,
+    outfolder = outdir,
+    min_height = min_height,
+    min_crown_area = min_crown_area,
+    tempdir = tempdir(),              # <--- this is what was changed
+    ...)
   print("Ran raster2trees")
 
   # Always write a CSV with attributes only (no geometry)
