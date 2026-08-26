@@ -873,6 +873,9 @@ def mergeTifs(inputPath, savePath, target_resolution=0.5):
         dirs = [item for item in items if os.path.isdir(item)]
         zip_files = [item for item in files if item.lower().endswith(".zip")]
 
+        if not zip_files:
+            warnings.warn(f"No zip files found in inputPath: {inputPath}")
+        
         if len(zip_files) == 1 and len(files) == 1 and len(dirs) == 0:
             zip_path = zip_files[0]
             extract_dir = os.path.join(inputPath, "unzipped_contents")
@@ -1064,6 +1067,12 @@ def saveWvimgMetadata(wvimgPath, savePath, prewvimgPath):
     # Walk through the directory
     for root, dirs, files in os.walk(wvimgPath):
         for file in files:
+            
+            # print(f"file: {file}")
+            # print("file:", type(file), repr(file))
+            # print("root:", type(root), repr(root))
+
+            #if file.endswith('XML') and (('PAN' in os.path.abspath(os.path.join(root, file))) or ('PSH' in os.path.abspath(os.path.join(root, file)))) :
             if file.endswith('XML') and 'PAN' in os.path.abspath(os.path.join(root, file)):
                 full_path = os.path.join(root, file)
                 x_vals = []
@@ -1113,6 +1122,8 @@ def saveWvimgMetadata(wvimgPath, savePath, prewvimgPath):
                     'max_x': max_x,
                     'max_y': max_y
                 }
+            
+    print(f"metadata_dict: {metadata_dict}")
 
     dir_ = os.path.dirname(savePath)
     if dir_:
@@ -2124,7 +2135,7 @@ def createLidarData(train_shp, catalog_geojson, epsg, lidarTilesPath, anchors_cs
     # print(f'lidarScans: {lidarScans}')
 
     # download lidar tifs
-    pathToRScript = os.path.join(projectPath, 'SatCHM', 'prepTrainInputs', 'Rutils.R')
+    pathToRScript = os.path.join(projectPath, 'CHM-MS-net-Canopy-Height-Model', 'prepTrainInputs', 'Rutils.R')
     anchors = pd.read_csv(anchors_csv)
     generate_chm_tiles(epsg=epsg, ept_urls=lidarScans, points_df=anchors, output_dir=lidarTilesPath, r_script_path=pathToRScript)
     
@@ -2428,31 +2439,70 @@ def makeInfList(base_dir: str, site):
     write_to_file(common_files_list, os.path.join(base_dir, f'{site}_inflist.txt'))
 
 def genTreelist(tifPath, projectPath, rdsPath=None, epsg=None, filename = 'treelist.csv'):
-    pathToRScript = os.path.join(projectPath, 'SatCHM', 'prepTrainInputs', 'Rutils.R')
+    pathToRScript = os.path.join(projectPath, 'CHM-MS-net-Canopy-Height-Model', 'prepTrainInputs', 'Rutils.R')
     outdir = os.path.dirname(tifPath)
     treelist_csv = os.path.join(outdir, filename)
-    crowns_gpkg = os.path.join(outdir, 'final_detected_crowns.gpkg')
 
+    #print("NOTE: skipping R subprocess for treelist this time...")
+    print("Beginning \"treelist\" R subprocess...")
     proc = subprocess.run(
         ["Rscript", "--vanilla", pathToRScript, "treelist",
-         "--chm", tifPath, "--outdir", outdir],
-        text=True, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        "--chm", tifPath, "--outdir", outdir],
+        text=True,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
     )
+    print("Completed \"treelist\" R subprocess...")
+
+    if proc.returncode != 0:
+        print("\n========== R SCRIPT FAILED ==========")
+        print("RETURN CODE:", proc.returncode)
+        print("\n---------- R STDOUT ----------")
+        print(proc.stdout)
+        print("\n---------- R STDERR ----------")
+        print(proc.stderr)
+        print("======================================\n")
+        raise RuntimeError(
+            f"Rscript failed with exit code {proc.returncode}"
+        )
 
     if filename != 'treelist.csv':
         os.rename(os.path.join(outdir, 'treelist.csv'), treelist_csv)
 
-    if proc.returncode != 0:
-        raise RuntimeError(f"Rscript failed:\nSTDERR:\n{proc.stderr}\nSTDOUT:\n{proc.stdout}")
+    # accept any number of crown files
+    crown_pattern = os.path.join(outdir, 'final_detected_crowns_*.gpkg')
+    crown_files = sorted(glob(crown_pattern))
+    if not crown_files:
+        fallback = os.path.join(outdir, 'final_detected_crowns.gpkg')
+        if os.path.exists(fallback):
+            crown_files = [fallback]
+            print(f"Using fallback crown file: {fallback}")
+        else:
+            raise FileNotFoundError(
+                f"Could not find any crown GPKG files in {outdir}"
+            )
+
+    print(f"Using {len(crown_files)} crown file(s):")
+    for path in crown_files:
+        print(f"  {path}")
+
 
     #TODO: Add col for crown radius derived from crown area
 
     # Add additional attributes with cloud2trees
-    df = trivHMD(treelistCSV=treelist_csv, crownsGPKG=crowns_gpkg, chm_raster=tifPath)
+    #df = trivHMD(treelistCSV=treelist_csv, crownsGPKG=crowns_gpkg, chm_raster=tifPath)
+    print("Creating treelist df")
+    df = trivHMD(
+        treelistCSV=treelist_csv,
+        crownsGPKG=crown_files,
+        chm_raster=tifPath
+    )
     df.to_csv(treelist_csv)
 
     # If we don't have rds data, add the hmd with a trivial hmd method
     if rdsPath != None and epsg != None:
+        print("Beginning \"cbh\" R subprocess...")
         proc = subprocess.run(
             [
                 "Rscript", "--vanilla", pathToRScript, "cbh",
@@ -2465,11 +2515,25 @@ def genTreelist(tifPath, projectPath, rdsPath=None, epsg=None, filename = 'treel
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
+        print("Completed \"cbh\" R subprocess...")
+    
+        if proc.returncode != 0:
+            print("\n========== R SCRIPT FAILED ==========")
+            print("RETURN CODE:", proc.returncode)
+            print("\n---------- R STDOUT ----------")
+            print(proc.stdout)
+            print("\n---------- R STDERR ----------")
+            print(proc.stderr)
+            print("======================================\n")
+            raise RuntimeError(
+                f"Rscript failed with exit code {proc.returncode}"
+            )
 
 
 def trivHMD(
     treelistCSV: str,
-    crownsGPKG: str,
+    #crownsGPKG: str,
+    crownsGPKG: list[str],          # <--- modified to accept multiple crown .gpkg files
     chm_raster: str,
     tree_id_col: str = "treeID",
     tree_x_col: str = "tree_x",
@@ -2517,13 +2581,45 @@ def trivHMD(
 
     # --- Load data ---
     df = pd.read_csv(treelistCSV)
-    crowns = gpd.read_file(crownsGPKG)
+    #crowns = gpd.read_file(crownsGPKG)
+
+    # Load all crown GPKGs
+    #crown_gdfs = [gpd.read_file(path) for path in crownsGPKG]
+
+    crown_gdfs = []
+    for path in crownsGPKG:
+        gdf = gpd.read_file(path)
+        gdf["_source_file"] = os.path.basename(path)
+        crown_gdfs.append(gdf)
+
+    # Check that all crown files have a CRS
+    for path, gdf in zip(crownsGPKG, crown_gdfs):
+        if gdf.crs is None:
+            raise ValueError(f"Crown file has no CRS: {path}")
+    # Make sure all crown files use the same CRS
+    reference_crs = crown_gdfs[0].crs
+    for path, gdf in zip(crownsGPKG, crown_gdfs):
+        if gdf.crs != reference_crs:
+            raise ValueError(
+                f"CRS mismatch:\n"
+                f"Reference CRS: {reference_crs}\n"
+                f"File: {path}\n"
+                f"File CRS: {gdf.crs}"
+            )
+    # Combine all crown files into one GeoDataFrame
+    crowns = gpd.GeoDataFrame(
+        pd.concat(crown_gdfs, ignore_index=True),
+        crs=reference_crs
+    )
+    print(f"Trees in treelist: {len(df)}")
+    print(f"Total crowns loaded: {len(crowns)}")
+
     if crowns.empty or crowns.geometry.is_empty.all():
         raise ValueError("No valid crown polygons found.")
     if crowns.crs is None:
         raise ValueError("Crowns layer has no CRS.")
 
-    crowns = crowns[[crowns.geometry.name]].copy()  # NEW: only keep crown geometry
+    crowns = crowns[[crowns.geometry.name, "_source_file"]].copy()
 
     gdf_trees = gpd.GeoDataFrame(
         df.copy(),
@@ -2533,6 +2629,73 @@ def trivHMD(
 
     # --- Match trees to crowns ---
     pip = gpd.sjoin(gdf_trees, crowns, how="left", predicate="within")
+    pip["_tree_index"] = pip.index
+    pip = pip.reset_index(drop=True)
+
+    print(f"Trees before spatial join: {len(gdf_trees)}")
+    print(f"Rows after spatial join: {len(pip)}")
+    print(f"Extra rows from spatial join: {len(pip) - len(gdf_trees)}")
+
+    # If a tree falls within multiple crowns, keep the smallest
+    # crown containing that tree. This only affects duplicate matches.
+    #pip["_tree_index"] = pip.index
+
+    match_counts = pip["_tree_index"].value_counts()
+    duplicate_tree_indices = match_counts[match_counts > 1]
+
+    print(f"Trees matching multiple crowns: {len(duplicate_tree_indices)}")
+
+    if not duplicate_tree_indices.empty:
+        print("WARNING: resolving duplicate tree/crown matches.")
+
+        crowns["_area"] = crowns.geometry.area
+
+        keep_rows = []
+
+        for tree_idx, group in pip.groupby("_tree_index"):
+
+            if len(group) == 1:
+                keep_rows.append(group.index[0])
+                continue
+
+            valid = group[group["index_right"].notna()]
+
+            if valid.empty:
+                keep_rows.append(group.index[0])
+                continue
+
+            crown_areas = valid["index_right"].astype(int).map(
+                crowns["_area"]
+            )
+
+            best_row_idx = crown_areas.idxmin()
+            best_row = valid.loc[best_row_idx]
+
+            keep_rows.append(best_row_idx)
+
+            crown_idx = int(best_row["index_right"])
+
+            print(
+                f"Tree {gdf_trees.loc[tree_idx, tree_id_col]}: "
+                f"{len(valid)} crown matches -> "
+                f"keeping crown {crown_idx} "
+                f"(area={crowns.iloc[crown_idx]['_area']:.2f} m²)"
+            )
+
+        pip = pip.loc[keep_rows].copy()
+
+        print(f"Rows after duplicate resolution: {len(pip)}")
+
+        pip.drop(columns=["_tree_index"], inplace=True)
+        crowns.drop(columns=["_area"], inplace=True)
+
+    if len(pip) != len(gdf_trees):
+        raise RuntimeError(
+            f"Expected {len(gdf_trees)} rows after crown matching, "
+            f"but got {len(pip)}."
+        )
+    print("Spacially joining nearest")
+    
     unmatched = pip[pip.index_right.isna()].copy()
     if not unmatched.empty:
         nearest = gpd.sjoin_nearest(
@@ -2551,6 +2714,7 @@ def trivHMD(
     out[furthest_y_col] = pd.NA
 
     # --- Compute HMD ---
+    print("Computing HMD")
     for idx, row in out.iterrows():
         crown_idx = row.get("index_right")
         if pd.isna(crown_idx):
