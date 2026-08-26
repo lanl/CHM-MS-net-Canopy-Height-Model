@@ -292,7 +292,25 @@ def sortdata(data, net_dict):
     """
     # Returns stacked features
     num_xs = len(net_dict['x_array'])
-    # print(f'num_xs: {num_xs}')
+    
+    # print("\n========== sortdata DEBUG ==========")
+    # print("num_xs:", num_xs)
+    # print("x_array:", net_dict['x_array'])
+    # print("len(data):", len(data))
+    # for i, x in enumerate(data):
+    #     print(f"\ndata[{i}]:")
+    #     print("  type:", type(x))
+    #     try:
+    #         print("  len:", len(x))
+    #         for j, item in enumerate(x):
+    #             if hasattr(item, "shape"):
+    #                 print(f"  [{j}] shape: {item.shape}")
+    #             else:
+    #                 print(f"  [{j}] type: {type(item)}")
+    #     except Exception as e:
+    #         print("  Could not inspect:", e)
+    # print("====================================\n")
+
     return [[torch.cat(feats) for feats in zip(*data[:num_xs])], *data[num_xs:]]
     
     

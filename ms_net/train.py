@@ -182,7 +182,9 @@ def setup_trainer(params, site):
         EarlyStopping(
             monitor="val_loss",
             check_finite=False,
-            patience=9999
+            patience=15,
+            min_delta=0.001,
+            mode="min"
         )
     ] 
     
