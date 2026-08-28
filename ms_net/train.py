@@ -19,6 +19,8 @@ from multiprocessing import freeze_support
 from network_2D_lightning import MS_Net
 from ms_parser import parse_args
 from pore_utils_2D import get_dataloader, load_hparams
+from plotting_utils import evaluate_validation_model
+
 
 def setup_environment():
     """
@@ -182,9 +184,10 @@ def setup_trainer(params, site):
         EarlyStopping(
             monitor="val_loss",
             check_finite=False,
-            patience=15,
+            mode="min",
+            restore_best_weights=True
+            patience=50,
             min_delta=0.001,
-            mode="min"
         )
     ] 
     
@@ -231,9 +234,7 @@ def train_main(data_path, NORM_CONST, site):
     print(f'net_dict: {net_dict}')
     train_dataloader = get_dataloader(net_dict, ['train'], data_path=data_path, NORM_CONST=NORM_CONST)
     val_dataloader = get_dataloader(net_dict, ['val'], data_path=data_path, NORM_CONST=NORM_CONST)
-
     trainer = setup_trainer(params, site)  # Pass site to setup_trainer
-    #trainer.fit(model, train_dataloader, val_dataloader['val'])
     
     try:
             trainer.fit(model, train_dataloader, val_dataloader['val'])
@@ -241,6 +242,14 @@ def train_main(data_path, NORM_CONST, site):
             print("\nTraining stopped by user (Ctrl+C).")
     finally:
          pass
+    
+    evaluate_validation_model(
+        model=model,
+        val_dataloader=val_dataloader['val'],
+        norm_const=NORM_CONST,
+        plot_sample=True,
+        save_plot="validation_comparison.png"
+    )
     
 def main():
     # freeze_support()

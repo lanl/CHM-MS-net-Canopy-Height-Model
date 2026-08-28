@@ -19,6 +19,7 @@ import argparse
 # import geopandas as gpd
 from dotenv import load_dotenv
 import time
+from prepTrainInputs.site_config import load_site_config
 
 ################### SETUP #################
 # Parse command line arguments FIRST
@@ -136,10 +137,19 @@ except Exception as e:
 rdsPath = None
 
 # folder creations
-os.makedirs(inf_data_path, exist_ok=True)
-os.makedirs(dem_tiles_path, exist_ok=True)
-os.makedirs(dem_prenorm_tiles_path, exist_ok=True)
-os.makedirs(prewvimgPath, exist_ok=True)
+for path in [
+    inf_data_path,
+    dem_tiles_path,
+    dem_prenorm_tiles_path,
+    prewvimgPath
+]:
+    if not os.path.isdir(path):
+        print(f"Creating directory: {path}")
+        os.makedirs(path, exist_ok=True)
+
+    if not os.path.isdir(path):
+        warnings.warn(f"Directory could not be verified: {path}")
+
 
 ############ PREPARE ANCHORS #############
 

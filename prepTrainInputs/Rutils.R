@@ -17,6 +17,14 @@ suppressPackageStartupMessages({
   # library(dplyr)
 })
 
+
+cat("========================================\n", flush = TRUE)
+cat("Rutils.R STARTED\n", flush = TRUE)
+cat("Command arguments:\n", flush = TRUE)
+print(commandArgs(), flush = TRUE)
+cat("========================================\n", flush = TRUE)
+
+
 # ---------- utils ----------
 chm_create <- function(filename, epsg, output_dir = "data") {
   nums <- as.numeric(unlist(stringr::str_extract_all(basename(filename), "\\d+")))
@@ -88,14 +96,30 @@ treelist_from_chm <- function(chm_tif, outdir = tempdir(), quiet = TRUE, min_cro
   if (!requireNamespace("cloud2trees", quietly = TRUE)) stop("Package 'cloud2trees' is required.")
   if (!dir.exists(outdir)) dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
 
+  cat("=== treelist_from_chm START ===\n", flush = TRUE)
+
+  cat("Opening raster...\n", flush = TRUE)
   r <- terra::rast(chm_tif)
-  if (quiet) terra::sources(r)
+
+  cat("Raster opened.\n", flush = TRUE)
+
+  cat("Rows:", terra::nrow(r), "\n", flush = TRUE)
+  cat("Cols:", terra::ncol(r), "\n", flush = TRUE)
+  cat("Cells:", terra::ncell(r), "\n", flush = TRUE)
+
+  cat("=== CALLING cloud2trees::raster2trees ===\n", flush = TRUE)
+
+  #if (quiet) terra::sources(r)
+  cat("CHM:", chm_tif, "\n", flush = TRUE)
+  cat("Rows:", terra::nrow(r), "\n", flush = TRUE)
+  cat("Cols:", terra::ncol(r), "\n", flush = TRUE)
+  cat("Cells:", terra::ncell(r), "\n", flush = TRUE)
+  cat("Resolution:", paste(terra::res(r), collapse = " x "), "\n", flush = TRUE)
+  cat("Starting raster2trees...\n", flush = TRUE)
 
 
-'''
-  added temdir local env reference to resolve the following Error:
-    {"ok":false,"error":"Error in file.path(tempdir, \"tile_.tif\"): promise already under evaluation: recursive default argument reference or earlier problems?\n"}
-'''
+  # added temdir local env reference to resolve the following Error:
+  #   {"ok":false,"error":"Error in file.path(tempdir, "tile_.tif"): promise already under evaluation: recursive default argument reference or earlier problems?\n"}
   print("Running raster2trees")
   tl <- cloud2trees::raster2trees(
     chm_rast = r,
@@ -194,6 +218,9 @@ if (sys.nframe() == 0) {
 
   tryCatch({
     if (isTRUE(opt$treelist)) {
+
+      cat("=== ENTERED TREELIST CLI BRANCH ===\n", flush = TRUE)
+
       chm  <- opt$`--chm`
       outd <- opt$`--outdir` %||% tempdir()
       min_crown_area <- as.numeric(opt$`--min_crown_area`)

@@ -2502,33 +2502,26 @@ def genTreelist(tifPath, projectPath, rdsPath=None, epsg=None, filename = 'treel
 
     # If we don't have rds data, add the hmd with a trivial hmd method
     if rdsPath != None and epsg != None:
-        print("Beginning \"cbh\" R subprocess...")
+        print('Beginning "cbh" R subprocess...')
         proc = subprocess.run(
             [
-                "Rscript", "--vanilla", pathToRScript, "cbh",
+                "Rscript", "--vanilla",
+                pathToRScript,
+                "cbh",
                 "--csv", treelist_csv,
                 "--model", rdsPath,
                 "--epsg", str(epsg)
             ],
-            text=True,
             check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
         )
-        print("Completed \"cbh\" R subprocess...")
-    
+        print(
+            f'R subprocess completed with exit code {proc.returncode}',
+            flush=True
+        )
         if proc.returncode != 0:
-            print("\n========== R SCRIPT FAILED ==========")
-            print("RETURN CODE:", proc.returncode)
-            print("\n---------- R STDOUT ----------")
-            print(proc.stdout)
-            print("\n---------- R STDERR ----------")
-            print(proc.stderr)
-            print("======================================\n")
             raise RuntimeError(
                 f"Rscript failed with exit code {proc.returncode}"
             )
-
 
 def trivHMD(
     treelistCSV: str,
