@@ -19,12 +19,12 @@ These are the required inputs to use SatCHM, followed by the output:
     </tr>
     <tr>
       <td>Satellite Imagery</td>
-      <td>Input satellite imagery must be cloudless, panchromatic GeoTIFFs that have a resolution of 0.5 - 0.6 meters with discernable crowns; target azimuth, off-nadir angle, solar azimuth, and solar elevation metadata must be able to documented for each image. <strong>The off-nadir angle for each angle must be < 20°.</strong>
+      <td>Input satellite imagery must be cloudless, panchromatic GeoTIFFs that have a resolution of 0.5 - 0.6 meters with discernable crowns; target azimuth, off-nadir angle, solar azimuth, and solar elevation metadata must be documented for each image. <strong>The off-nadir angle for each image must be < 20°.</strong>
  </td>
     </tr>
 	<tr>
       <td>Digital Elevation Models (DEMs)</td>
-      <td>Input DEMs of the target area should at least be 30 meters resolution</td>
+      <td>Input DEMs of the target area should have a spatial resolution of at least 30 meters.</td>
 	  <tr>
       <td>Solar and Sensor Angles</td>
       <td>Solar and sensor inputs are created with SatCHM using the target azimuth, off-nadir angle, solar azimuth, and solar elevation metadata from the satellite imagery </td>
@@ -118,4 +118,4 @@ Marcozzi, A., Wells, L., Parsons, R., Mueller, E., Linn, R., & Hiers, J. K. (202
 Woolsey G (2025). cloud2trees: Aerial point cloud data to forest inventory tree lists. R package version 0.7.7, https://georgewoolsey.github.io/cloud2trees/.
 
 ## Acknowledgments
-This research was funded and supported by the Laboratory Directed Research and Development under 'Experiemental Research' at Los Alamos National Laboratory. Thank you to the entire FIRE team and others in the Earth and Environmental Sciences division, including but not limited to Agnese Marcato, Julia Oliveto, Javier Santos, and Rod Linn. 
+This research was funded and supported by the Laboratory Directed Research and Development under 'Experimental Research' at Los Alamos National Laboratory. Thank you to the entire FIRE team and others in the Earth and Environmental Sciences division, including but not limited to Agnese Marcato, Julia Oliveto, Javier Santos, and Rod Linn. 
