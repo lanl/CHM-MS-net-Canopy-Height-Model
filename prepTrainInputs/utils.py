@@ -2394,6 +2394,578 @@ def makeInfList(base_dir: str, site):
     # Write to output files
     write_to_file(common_files_list, os.path.join(base_dir, f'{site}_inflist.txt'))
 
+
+def _cloud2trees_default_log_ws(height):
+    """Python equivalent of cloud2trees::itd_ws_functions()[["log_fn"]]."""
+    x = np.asarray(height, dtype=np.float64)
+    y = np.full(x.shape, 0.001, dtype=np.float64)
+
+    finite = np.isfinite(x)
+    y[finite & (x >= 0) & (x < 2)] = 0.6
+    y[finite & (x > 26.5)] = 5.0
+
+    mid = finite & (x >= 2) & (x <= 26.5)
+    y[mid] = np.exp(-(3.5 * (1.0 / x[mid])) + np.power(x[mid], 0.17))
+    return y
+
+
+def _median_smooth_chm_python(chm, size=3):
+    """Median-smooth a CHM while preserving its NoData footprint.
+
+    Parameters
+    ----------
+    chm : array-like
+        CHM heights, with invalid cells represented by NaN.
+    size : int or None
+        Odd median-filter width in pixels.  ``None`` or values <= 1 disable
+        smoothing.
+
+    Notes
+    -----
+    Invalid cells are temporarily filled from the nearest valid CHM cell so
+    NaNs do not contaminate the median operation.  The original invalid-cell
+    mask is restored afterward.  This makes the filter useful at canopy/NoData
+    boundaries without inventing valid output beyond the original CHM extent.
+    """
+    if size is None or int(size) <= 1:
+        return np.asarray(chm, dtype=np.float64).copy()
+
+    size = int(size)
+    if size % 2 == 0:
+        raise ValueError("median_filter_size must be an odd integer (for example 3 or 5).")
+
+    try:
+        from scipy.ndimage import median_filter, distance_transform_edt
+    except ImportError as exc:
+        raise ImportError(
+            "Median smoothing requires scipy. Install it with conda or pip."
+        ) from exc
+
+    arr = np.asarray(chm, dtype=np.float64)
+    valid = np.isfinite(arr)
+    if not np.any(valid):
+        return arr.copy()
+
+    work = arr.copy()
+    if np.any(~valid):
+        # For every invalid cell, distance_transform_edt returns the index of
+        # the nearest zero in the supplied mask.  Here valid cells are zero.
+        nearest = distance_transform_edt(~valid, return_distances=False, return_indices=True)
+        work[~valid] = arr[tuple(nearest[:, ~valid])]
+
+    smoothed = median_filter(work, size=size, mode="nearest")
+    smoothed[~valid] = np.nan
+    return smoothed
+
+
+def _detect_treetops_python(chm, pixel_size, min_height=2.0, ws_fn=None):
+    """
+    Approximate lidR::locate_trees(..., lmf(ws=<variable function>, hmin=...))
+    on a CHM raster.
+
+    The cloud2trees default treats ``ws`` as the diameter (in map units) of a
+    circular local-maximum window.  Because a raster has discrete pixels, the
+    continuously varying radius is quantized to integer pixel radii here.
+    """
+    try:
+        from scipy.ndimage import maximum_filter, label
+        from skimage.morphology import disk
+    except ImportError as exc:
+        raise ImportError(
+            "genTreelist_python() requires scipy and scikit-image. "
+            "Install them with `pip install scipy scikit-image` or conda."
+        ) from exc
+
+    if ws_fn is None:
+        ws_fn = _cloud2trees_default_log_ws
+
+    chm = np.asarray(chm, dtype=np.float64)
+    valid = np.isfinite(chm) & (chm >= float(min_height))
+    if not np.any(valid):
+        return []
+
+    safe = np.where(valid, chm, -np.inf)
+    ws_m = np.asarray(ws_fn(chm), dtype=np.float64)
+    if ws_m.shape != chm.shape:
+        # Support scalar-returning custom functions while keeping the public
+        # interface convenient on the Python side.
+        if ws_m.size == 1:
+            ws_m = np.full(chm.shape, float(ws_m), dtype=np.float64)
+        else:
+            raise ValueError("ws_fn must return a scalar or an array matching the CHM shape.")
+
+    if np.any(~np.isfinite(ws_m[valid])) or np.any(ws_m[valid] <= 0):
+        raise ValueError("ws_fn must return finite, positive window diameters for valid CHM cells.")
+
+    # lidR::lmf() defines ws as a circular-window diameter.  Convert to a
+    # discrete radius in pixels.  At least one pixel is used so sub-pixel
+    # windows still have a meaningful neighborhood.
+    radius_px = np.maximum(1, np.ceil((ws_m / 2.0) / float(pixel_size)).astype(np.int32))
+
+    candidates = np.zeros(chm.shape, dtype=bool)
+    for radius in np.unique(radius_px[valid]):
+        footprint = disk(int(radius)).astype(bool)
+        local_max = maximum_filter(safe, footprint=footprint, mode="constant", cval=-np.inf)
+        candidates |= valid & (radius_px == radius) & (safe == local_max)
+
+    # Flat-topped plateaus can yield several adjacent maximum cells.  Collapse
+    # each connected plateau to one deterministic representative, analogous to
+    # a single treetop marker.
+    labeled, n_labels = label(candidates, structure=np.ones((3, 3), dtype=np.uint8))
+    treetops = []
+    for lab in range(1, n_labels + 1):
+        coords = np.argwhere(labeled == lab)
+        if coords.size == 0:
+            continue
+        vals = safe[coords[:, 0], coords[:, 1]]
+        max_val = np.max(vals)
+        best = coords[vals == max_val]
+        if len(best) > 1:
+            center = best.mean(axis=0)
+            d2 = np.sum((best - center) ** 2, axis=1)
+            r, c = best[int(np.argmin(d2))]
+        else:
+            r, c = best[0]
+        treetops.append((int(r), int(c), float(chm[r, c])))
+
+    # Stable ordering: north-to-south, west-to-east.  cloud2trees later
+    # regenerates IDs anyway, so exact numeric ID ordering is not analytical.
+    treetops.sort(key=lambda z: (z[0], z[1]))
+    return treetops
+
+
+def _segment_crowns_python(
+    chm,
+    transform,
+    crs,
+    treetops,
+    min_height=2.0,
+    min_crown_area=4.0,
+    measurement_chm=None,
+):
+    """
+    Approximate ForestTools::mcws() with marker-controlled watershed.
+
+    Returns one record per retained crown with geometry and treetop attributes.
+    """
+    try:
+        from skimage.segmentation import watershed
+    except ImportError as exc:
+        raise ImportError(
+            "genTreelist_python() requires scikit-image. "
+            "Install it with `pip install scikit-image` or conda."
+        ) from exc
+
+    if not treetops:
+        return []
+
+    chm = np.asarray(chm, dtype=np.float64)
+    if measurement_chm is None:
+        measurement_chm = chm
+    measurement_chm = np.asarray(measurement_chm, dtype=np.float64)
+    if measurement_chm.shape != chm.shape:
+        raise ValueError("measurement_chm must have the same shape as the segmentation CHM.")
+
+    valid = np.isfinite(chm) & (chm >= float(min_height))
+
+    markers = np.zeros(chm.shape, dtype=np.int32)
+    for marker_id, (r, c, _) in enumerate(treetops, start=1):
+        if valid[r, c]:
+            markers[r, c] = marker_id
+
+    if not np.any(markers):
+        return []
+
+    # ForestTools::mcws() treats the CHM as a topographic surface with treetops
+    # as markers.  Negating the CHM gives the equivalent basin geometry for
+    # skimage's watershed implementation.
+    elevation = np.where(valid, -chm, 0.0)
+    labels = watershed(
+        elevation,
+        markers=markers,
+        mask=valid,
+        connectivity=2,  # 8-neighbor connectivity
+        watershed_line=False,
+    ).astype(np.int32)
+
+    parts = {}
+    for geom_mapping, value in shapes(labels, mask=(labels > 0), transform=transform):
+        label_id = int(value)
+        parts.setdefault(label_id, []).append(shape(geom_mapping))
+
+    records = []
+    for marker_id, (r, c, height) in enumerate(treetops, start=1):
+        geoms = parts.get(marker_id)
+        if not geoms:
+            continue
+
+        geom = unary_union(geoms)
+        try:
+            geom = shapely.make_valid(geom)
+        except Exception:
+            geom = geom.buffer(0)
+
+        x, y = rasterio.transform.xy(transform, r, c, offset="center")
+        tree_pt = Point(float(x), float(y))
+
+        # A label can rarely polygonize into multiple disconnected pieces.
+        # ForestTools polygon output removes orphan pieces; retain the piece
+        # associated with the treetop (or the nearest piece as a fallback).
+        polygon_parts = []
+        if geom.geom_type == "Polygon":
+            polygon_parts = [geom]
+        elif geom.geom_type == "MultiPolygon":
+            polygon_parts = list(geom.geoms)
+        elif geom.geom_type == "GeometryCollection":
+            polygon_parts = [g for g in geom.geoms if g.geom_type == "Polygon"]
+
+        if not polygon_parts:
+            continue
+
+        touching = [g for g in polygon_parts if g.covers(tree_pt)]
+        if touching:
+            geom = max(touching, key=lambda g: g.area)
+        else:
+            geom = min(polygon_parts, key=lambda g: g.distance(tree_pt))
+
+        # terra::fillHoles() removes polygon holes in cloud2trees.
+        geom = Polygon(geom.exterior)
+        try:
+            geom = shapely.make_valid(geom)
+        except Exception:
+            geom = geom.buffer(0)
+
+        if geom.is_empty or not geom.is_valid:
+            continue
+
+        crown_area = float(geom.area)
+        # cloud2trees uses a strict > comparison here.
+        if crown_area <= float(min_crown_area):
+            continue
+
+        measured_height = measurement_chm[r, c]
+        if not np.isfinite(measured_height):
+            measured_height = height
+
+        records.append({
+            "_marker_id": marker_id,
+            "tree_height_m": float(measured_height),
+            "tree_x": float(x),
+            "tree_y": float(y),
+            "crown_area_m2": crown_area,
+            "geometry": geom,
+        })
+
+    return records
+
+
+def _format_tree_coord_for_id(value):
+    """Format round(x, 1) similarly to R's paste() representation."""
+    s = f"{round(float(value), 1):.1f}"
+    return s[:-2] if s.endswith(".0") else s
+
+
+
+
+def _add_hmd_from_assigned_crowns_python(
+    attrs: pd.DataFrame,
+    crowns: gpd.GeoDataFrame,
+    chm_raster: str,
+    densify_step: float = 0.25,
+    hmd_col: str = "HMD_m",
+):
+    """
+    Add HMD directly from each tree's already-assigned crown.
+
+    This is the Python-only counterpart to ``trivHMD``.  Unlike ``trivHMD``,
+    it does not spatially join treetop points back to crown polygons.  The
+    Python segmentation already has a one-to-one treeID -> crown relationship,
+    so using that relationship directly avoids duplicate rows where crowns from
+    buffered processing tiles overlap slightly.
+    """
+    if "treeID" not in attrs.columns or "treeID" not in crowns.columns:
+        raise ValueError("attrs and crowns must both contain treeID.")
+    if crowns.crs is None:
+        raise ValueError("Crowns layer has no CRS.")
+
+    crown_by_id = crowns.set_index("treeID", drop=False)
+    if not crown_by_id.index.is_unique:
+        raise ValueError("Crown treeID values are not unique.")
+
+    def _densify_boundary(poly, step):
+        boundary = poly.boundary
+        segments = list(boundary.geoms) if boundary.geom_type == "MultiLineString" else [boundary]
+        coords = []
+        for seg in segments:
+            if seg.length == 0 or step <= 0:
+                coords.extend(list(seg.coords))
+                continue
+            n = max(1, int(math.ceil(seg.length / step)))
+            coords.extend(
+                (seg.interpolate(i * seg.length / n).x, seg.interpolate(i * seg.length / n).y)
+                for i in range(n + 1)
+            )
+        return coords
+
+    result = attrs.copy()
+    result[hmd_col] = pd.NA
+
+    with rasterio.open(chm_raster) as src:
+        # genTreelist_python writes crowns in the CHM CRS, so this should be
+        # the normal path and requires no reprojection/pyproj lookup.
+        same_crs = (src.crs is None) or (crowns.crs is not None and src.crs == crowns.crs)
+        sampler = src if same_crs else WarpedVRT(src, crs=crowns.crs)
+        close_sampler = sampler is not src
+        try:
+            for idx, row in result.iterrows():
+                tree_id = row["treeID"]
+                if tree_id not in crown_by_id.index:
+                    continue
+                crown_geom = crown_by_id.loc[tree_id].geometry
+                if crown_geom is None or crown_geom.is_empty:
+                    continue
+
+                tree_pt = Point(float(row["tree_x"]), float(row["tree_y"]))
+                coords = _densify_boundary(crown_geom, densify_step)
+                if not coords:
+                    continue
+
+                far_x, far_y = max(
+                    coords,
+                    key=lambda xy: tree_pt.distance(Point(float(xy[0]), float(xy[1]))),
+                )
+                val = list(sampler.sample([(float(far_x), float(far_y))]))[0][0]
+
+                if src.nodata is not None and val == src.nodata:
+                    continue
+                try:
+                    val = float(val)
+                except Exception:
+                    continue
+                if not np.isfinite(val):
+                    continue
+                result.at[idx, hmd_col] = val
+        finally:
+            if close_sampler:
+                sampler.close()
+
+    desired_cols = [
+        "treeID", "tree_height_m", "tree_x", "tree_y",
+        "crown_area_m2", hmd_col,
+    ]
+    result = result[desired_cols]
+    result.index.name = "index"
+    return result
+
+def genTreelist_python(
+    tifPath,
+    projectPath=None,
+    rdsPath=None,
+    epsg=None,
+    filename="treelist.csv",
+    min_crown_area=4.0,
+    min_height=2.0,
+    ws_fn=None,
+    crowns_filename="final_detected_crowns.gpkg",
+    treetops_filename="final_detected_tree_tops.gpkg",
+    add_hmd=True,
+    max_pixels_in_memory=40_000_000,
+    tile_size_px=4096,
+    tile_buffer_m=10.0,
+    median_filter_size=None,
+):
+    """
+    Pure-Python alternative to :func:`genTreelist`.
+
+    This follows the current R/cloud2trees workflow as closely as practical:
+
+      1. Read the original CHM.  If ``median_filter_size`` is supplied, make a
+         median-smoothed copy for segmentation while retaining the original
+         CHM for tree-height and HMD measurements.
+      2. Detect treetops with a variable-window local-maximum filter equivalent
+         to ``lidR::locate_trees(..., lmf())``.  By default this uses the exact
+         logarithmic window-size function used by ``cloud2trees::raster2trees``.
+      3. Delineate crowns with marker-controlled watershed, paralleling
+         ``ForestTools::mcws``.
+      4. Polygonize crowns, remove holes, calculate ``crown_area_m2``, and
+         discard crowns with area <= ``min_crown_area``.
+      5. Write ``final_detected_crowns.gpkg``,
+         ``final_detected_tree_tops.gpkg``, and ``treelist.csv`` (names are
+         configurable).
+      6. Add ``HMD_m`` from each tree's directly assigned crown using the same
+         farthest-boundary-point definition as ``trivHMD``.
+
+    Parameters ``projectPath``, ``rdsPath``, and ``epsg`` are retained for
+    drop-in signature compatibility with ``genTreelist``.  ``projectPath`` is
+    not needed.  The optional R ``.rds`` CBH model is not executed here because
+    doing so would violate the Python-only requirement; if ``rdsPath`` is
+    supplied a warning is emitted after the crown/HMD products are written.
+
+    Notes
+    -----
+    The algorithm is intentionally matched at the method/parameter level, but
+    results are not expected to be bit-for-bit identical to lidR/ForestTools
+    because SciPy/scikit-image use different low-level implementations.
+
+    ``median_filter_size=5`` applies stronger smoothing for noisy CHMs:
+    detection and watershed operate on the 5x5 median surface, while
+    ``tree_height_m`` and ``HMD_m`` continue to come from the unsmoothed CHM.
+    """
+    tifPath = str(tifPath)
+    outdir = os.path.dirname(os.path.abspath(tifPath))
+    os.makedirs(outdir, exist_ok=True)
+
+    treelist_csv = os.path.join(outdir, filename)
+    crowns_gpkg = os.path.join(outdir, crowns_filename)
+    treetops_gpkg = os.path.join(outdir, treetops_filename)
+
+    all_records = []
+
+    with rasterio.open(tifPath) as src:
+        if src.count < 1:
+            raise ValueError("CHM raster has no bands.")
+        if src.crs is None:
+            raise ValueError("CHM raster has no CRS.")
+        if getattr(src.crs, "is_geographic", False):
+            raise ValueError("CHM must use a projected CRS with linear units (normally meters).")
+
+        resx = abs(float(src.transform.a))
+        resy = abs(float(src.transform.e))
+        if not np.isclose(resx, resy):
+            raise ValueError("genTreelist_python currently requires square CHM pixels.")
+        pixel_size = resx
+
+        total_pixels = int(src.width) * int(src.height)
+        use_tiles = total_pixels > int(max_pixels_in_memory)
+
+        if not use_tiles:
+            data = src.read(1, masked=True).filled(np.nan).astype(np.float64)
+            if src.nodata is not None and np.isfinite(src.nodata):
+                data[data == src.nodata] = np.nan
+
+            segmentation_data = _median_smooth_chm_python(
+                data, size=median_filter_size
+            )
+            treetops = _detect_treetops_python(
+                segmentation_data,
+                pixel_size=pixel_size,
+                min_height=min_height,
+                ws_fn=ws_fn,
+            )
+            all_records.extend(
+                _segment_crowns_python(
+                    segmentation_data,
+                    transform=src.transform,
+                    crs=src.crs,
+                    treetops=treetops,
+                    min_height=min_height,
+                    min_crown_area=min_crown_area,
+                    measurement_chm=data,
+                )
+            )
+        else:
+            # cloud2trees splits large rasters and uses a 10 m buffer.  Do the
+            # same conceptually, but assign each crown to the tile containing
+            # its treetop so duplicate buffer detections are not retained.
+            buffer_px = max(1, int(math.ceil(float(tile_buffer_m) / pixel_size)))
+            for row0 in range(0, src.height, int(tile_size_px)):
+                row1 = min(src.height, row0 + int(tile_size_px))
+                for col0 in range(0, src.width, int(tile_size_px)):
+                    col1 = min(src.width, col0 + int(tile_size_px))
+
+                    br0 = max(0, row0 - buffer_px)
+                    br1 = min(src.height, row1 + buffer_px)
+                    bc0 = max(0, col0 - buffer_px)
+                    bc1 = min(src.width, col1 + buffer_px)
+
+                    win = Window(bc0, br0, bc1 - bc0, br1 - br0)
+                    data = src.read(1, window=win, masked=True).filled(np.nan).astype(np.float64)
+                    if src.nodata is not None and np.isfinite(src.nodata):
+                        data[data == src.nodata] = np.nan
+                    win_transform = src.window_transform(win)
+
+                    segmentation_data = _median_smooth_chm_python(
+                        data, size=median_filter_size
+                    )
+                    treetops = _detect_treetops_python(
+                        segmentation_data,
+                        pixel_size=pixel_size,
+                        min_height=min_height,
+                        ws_fn=ws_fn,
+                    )
+                    records = _segment_crowns_python(
+                        segmentation_data,
+                        transform=win_transform,
+                        crs=src.crs,
+                        treetops=treetops,
+                        min_height=min_height,
+                        min_crown_area=min_crown_area,
+                        measurement_chm=data,
+                    )
+
+                    # Ownership by treetop position in the unbuffered core.
+                    for rec in records:
+                        rr, cc = src.index(rec["tree_x"], rec["tree_y"])
+                        if row0 <= rr < row1 and col0 <= cc < col1:
+                            all_records.append(rec)
+
+        crs = src.crs
+
+    if not all_records:
+        raise ValueError(
+            "Could not locate any trees/crowns in the CHM with the supplied "
+            f"min_height={min_height} and min_crown_area={min_crown_area}."
+        )
+
+    crowns = gpd.GeoDataFrame(all_records, geometry="geometry", crs=crs)
+
+    # Deterministic final ordering and cloud2trees-style tree IDs.
+    crowns = crowns.sort_values(["tree_y", "tree_x"], ascending=[False, True]).reset_index(drop=True)
+    crowns["treeID"] = [
+        f"{i}_{_format_tree_coord_for_id(x)}_{_format_tree_coord_for_id(y)}"
+        for i, (x, y) in enumerate(zip(crowns["tree_x"], crowns["tree_y"]), start=1)
+    ]
+    crowns = crowns[
+        ["treeID", "tree_height_m", "tree_x", "tree_y", "crown_area_m2", "geometry"]
+    ]
+
+    # Match cloud2trees delivery products.
+    crowns.to_file(crowns_gpkg, driver="GPKG", layer="crowns")
+
+    treetops_gdf = gpd.GeoDataFrame(
+        crowns.drop(columns="geometry").copy(),
+        geometry=gpd.points_from_xy(crowns["tree_x"], crowns["tree_y"]),
+        crs=crowns.crs,
+    )
+    treetops_gdf.to_file(treetops_gpkg, driver="GPKG", layer="tree_tops")
+
+    attrs = crowns.drop(columns="geometry").copy()
+    attrs.to_csv(treelist_csv, index=False)
+
+    if add_hmd:
+        # The Python segmentation already knows the exact one-to-one mapping
+        # between each treetop and its crown.  Use that mapping directly rather
+        # than spatially joining points back to polygons; buffered tile crowns
+        # can overlap slightly and create duplicate spatial-join rows.
+        attrs = _add_hmd_from_assigned_crowns_python(
+            attrs=attrs,
+            crowns=crowns,
+            chm_raster=tifPath,
+        )
+        # Match the existing genTreelist()/trivHMD CSV convention.
+        attrs.to_csv(treelist_csv)
+
+    if rdsPath is not None:
+        warnings.warn(
+            "genTreelist_python() completed crown segmentation and HMD, but "
+            "did not apply the R .rds CBH model. A converted Python model is "
+            "needed for a fully Python CBH prediction step.",
+            RuntimeWarning,
+        )
+
+    return attrs, crowns
+
+
 def genTreelist(tifPath, projectPath, rdsPath=None, epsg=None, filename = 'treelist.csv'):
     pathToRScript = os.path.join(projectPath, 'SatCHM', 'prepTrainInputs', 'Rutils.R')
     outdir = os.path.dirname(tifPath)
@@ -2784,4 +3356,3 @@ def scale_tif(
     print("\n" + "=" * 60)
     print(f"✓ Post-processing complete! Scale factor: {scale_factor:.4f}")
     print("=" * 60)
-    
