@@ -62,6 +62,9 @@ def parse_args(argv=None):
     parser.add_argument("--check_val_every_n_epoch", default=2, type=int)
     parser.add_argument("--gradient_clip_val", default=1.0, type=float)
 
+    # EVALUATION PARAMETERS
+    parser.add_argument("--eval-only", action="store_true")         # defaults to False. True when passed
+
     # TESTING/RESTART PARAMETERS
     parser.add_argument("--num_model", default=0, type=int)
 

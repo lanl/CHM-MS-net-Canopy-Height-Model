@@ -293,6 +293,17 @@ class MS_Net(LightningModule):
 
         # INITIALIZATION
         super(MS_Net, self).__init__()
+
+        self.save_hyperparameters(
+            "net_name",
+            "num_scales",
+            "num_features",
+            "num_filters",
+            "f_mult",
+            "lr",
+            "steps",
+        )
+
         """
         Description
         ___________

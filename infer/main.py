@@ -34,31 +34,36 @@ parser.add_argument('--feather-const', type=int, default=40,
                    help='Feathering constant for tile merging (default: 40)')
 args = parser.parse_args()
 
-# loading env variables
+# Load env variables
 load_dotenv()
-project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 # Get site from command line or fall back to .env
 if args.site:
     site = args.site
     print(f"✓ Using site from command line: {site}")
+    # load vars from config file
+    config = load_site_config(site)
+    epsg = config['epsg']
+    openTopoAPIkey = config['openTopoAPIkey']
+    inferenceShpPath = config['inferenceShpPath']
 else:
     site = os.getenv('site')
     if not site:
         raise ValueError("Site must be specified via --site flag or in .env file")
     print(f"✓ Using site from .env file: {site}")
+    epsg = int(os.getenv('epsg'))
+    openTopoAPIkey = os.getenv('openTopoAPIkey')
+    inferenceShpPath = os.getenv('inferenceShpPath')
 
 # Load other env variables
 chmPath = os.getenv('chmPath')
 chmReducedPath = os.getenv('chmReducedPath')
 shpPath = os.getenv('shpPath')
-epsg = int(os.getenv('epsg'))
-inferenceShpPath = os.getenv('inferenceShpPath')
 customTrainShpPath = os.getenv('customTrainShpPath')
 fp_path = os.getenv('fp_path')
-openTopoAPIkey = os.getenv('openTopoAPIkey')
 maxarAPIkey = os.getenv('maxarAPIkey')
 customLidarTifPath = os.getenv('customLidarTifPath')
+numTrainImages = 1000
 
 # Use command line args or defaults
 SCALING_METHOD = args.scale
@@ -68,6 +73,7 @@ FEATHER_CONST = args.feather_const
 print(f"✓ Using scaling method: {SCALING_METHOD}")
 
 ############### PATH DEFINITIONS ###############
+project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 inf_data_path = os.path.join(project_path, f'{site}_INF_data')
 pathToLidarResources = os.path.join(project_path, 'resources.geojson')
 root, _ = os.path.splitext(inferenceShpPath) # Find inf shape as defined during training input prep

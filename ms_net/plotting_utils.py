@@ -48,7 +48,7 @@ def colorbar(mappable):
 
 
 
-def plot_cs(y, yhat, error='L1', title=None, save_as=None):
+def plot_cs(y, yhat, pan=None, error='L1', title=None, save_as=None):
 
     y_cs = y.cpu().squeeze()
     yh_cs = yhat.cpu().squeeze()
@@ -71,17 +71,29 @@ def plot_cs(y, yhat, error='L1', title=None, save_as=None):
     plt.figure(figsize=(12, 3))
 
     # --------------------------------------------------
-    # 1. Observed
+    # 1. Panchromatic Image
     # --------------------------------------------------
+
     plt.subplot(1, 4, 1)
+    if pan.ndim == 2:
+        im = plt.imshow(pan, cmap='gray')
+    else:
+        im = plt.imshow(pan)
+    colorbar(im)
+    plt.title('Panchromatic')
+
+    # --------------------------------------------------
+    # 2. Observed
+    # --------------------------------------------------
+    plt.subplot(1, 4, 2)
     im = plt.imshow(y_np)
     colorbar(im)
     plt.title('Observed')
 
     # --------------------------------------------------
-    # 2. Predicted
+    # 3. Predicted
     # --------------------------------------------------
-    plt.subplot(1, 4, 2)
+    plt.subplot(1, 4, 3)
     im = plt.imshow(
         yh_np,
         clim=(np.nanmin(y_np), np.nanmax(y_np))
@@ -89,19 +101,19 @@ def plot_cs(y, yhat, error='L1', title=None, save_as=None):
     colorbar(im)
     plt.title('Predicted')
 
-    # --------------------------------------------------
-    # 3. Absolute error
-    # --------------------------------------------------
-    plt.subplot(1, 4, 3)
-    im = plt.imshow(
-        abs_np,
-        clim=(0, np.nanmax(abs_np))
-    )
-    colorbar(im)
-    plt.title('Absolute error')
+    # # --------------------------------------------------
+    # # 4. Absolute error
+    # # --------------------------------------------------
+    # plt.subplot(1, 4, 3)
+    # im = plt.imshow(
+    #     abs_np,
+    #     clim=(0, np.nanmax(abs_np))
+    # )
+    # colorbar(im)
+    # plt.title('Absolute error')
 
     # --------------------------------------------------
-    # 4. Signed error
+    # 5. Signed error
     # --------------------------------------------------
     plt.subplot(1, 4, 4)
 
@@ -123,29 +135,6 @@ def plot_cs(y, yhat, error='L1', title=None, save_as=None):
         plt.savefig(save_as, bbox_inches='tight')
 
     return plt.gcf()
-
-    # plt.subplot(1,3,1)
-    # im = plt.imshow(y_cs); 
-    # colorbar(im)
-    # plt.title('y')
-    # plt.subplot(1,3,2)
-    # im = plt.imshow(yh_cs, clim=(y_cs.min(), y_cs.max()));
-    # colorbar(im)
-    # plt.title('$\hat{y}$')
-    # plt.subplot(1,3,3)
-    # im = plt.imshow(e_cs, clim=(0, y_cs.max()));
-    # colorbar(im)
-    # plt.title(f'{error} error')
-    
-    # fig = matplotlib.pyplot.gcf()
-    # fig.set_size_inches(9, 3)
-    # #plt.show()
-    
-    # if title:
-    #     plt.suptitle(title)
-    
-    # if save_as:    
-    #     plt.savefig(save_as)
     
     
     
@@ -156,14 +145,15 @@ def evaluate_validation_model(
     device=None,
     max_samples=None,
     plot_sample=True,
-    save_plot=None
+    save_plot=None,
+    data_point_index=0
 ):
     """
     Evaluate a trained MS-Net model on the validation dataset.
 
     Calculates:
         - RMSE
-        - MAE
+        - Mean absolute error (MAE)
         - Mean signed error (bias)
         - Standard deviation of signed error
         - R²
@@ -235,6 +225,22 @@ def evaluate_validation_model(
                 for m in masks
             ]
 
+            print("Number of x features:", len(x))
+            for i, feature in enumerate(x):
+                print(f"x[{i}] type={type(feature)}")
+                if isinstance(feature, (list, tuple)):
+                    print(f"  number of scales: {len(feature)}")
+                    for j, scale in enumerate(feature):
+                        print(f"  x[{i}][{j}] shape={scale.shape}")
+                else:
+                    print(f"  shape={feature.shape}")
+            
+            # Highest-resolution input
+            pan = x[2][data_point_index]
+            print("Finest-resolution input shape:", pan.shape)
+            pan = pan.detach().cpu()
+            pan = pan[0]
+
             y_pred = model(x, masks)
 
             # Finest scale is the final scale
@@ -251,8 +257,9 @@ def evaluate_validation_model(
             # Plot first validation example
             if plot_sample and not plotted:
                 plot_cs(
-                    observed[0],
-                    predicted[0],
+                    observed[data_point_index],
+                    predicted[data_point_index],
+                    pan=pan,
                     error='L1',
                     title=f'Validation sample {batch_idx}',
                     save_as=save_plot

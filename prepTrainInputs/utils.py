@@ -1074,7 +1074,9 @@ def saveWvimgMetadata(wvimgPath, savePath, prewvimgPath):
 
             #if file.endswith('XML') and (('PAN' in os.path.abspath(os.path.join(root, file))) or ('PSH' in os.path.abspath(os.path.join(root, file)))) :
             if file.endswith('XML') and 'PAN' in os.path.abspath(os.path.join(root, file)):
+                
                 full_path = os.path.join(root, file)
+                print(f"Found XML file: {full_path}")
                 x_vals = []
                 y_vals = []
                 
@@ -2444,25 +2446,22 @@ def genTreelist(tifPath, projectPath, rdsPath=None, epsg=None, filename = 'treel
     treelist_csv = os.path.join(outdir, filename)
 
     #print("NOTE: skipping R subprocess for treelist this time...")
-    print("Beginning \"treelist\" R subprocess...")
+    print('Beginning "treelist" R subprocess...', flush=True)
     proc = subprocess.run(
-        ["Rscript", "--vanilla", pathToRScript, "treelist",
-        "--chm", tifPath, "--outdir", outdir],
-        text=True,
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE
+        [
+            "Rscript", "--vanilla",
+            pathToRScript,
+            "treelist",
+            "--chm", tifPath,
+            "--outdir", outdir
+        ],
+        check=False
     )
-    print("Completed \"treelist\" R subprocess...")
-
+    print(
+        f'R subprocess completed with exit code {proc.returncode}',
+        flush=True
+    )
     if proc.returncode != 0:
-        print("\n========== R SCRIPT FAILED ==========")
-        print("RETURN CODE:", proc.returncode)
-        print("\n---------- R STDOUT ----------")
-        print(proc.stdout)
-        print("\n---------- R STDERR ----------")
-        print(proc.stderr)
-        print("======================================\n")
         raise RuntimeError(
             f"Rscript failed with exit code {proc.returncode}"
         )
@@ -2957,6 +2956,7 @@ def scale_tif(
     
     # 8. Apply scaling to NN prediction
     scaled_prediction = pred_data * scale_factor
+    #scaled_prediction = pred_data
     
     # Calculate scaled statistics for verification
     valid_scaled = scaled_prediction[scaled_prediction != pred_nodata] if pred_nodata is not None else scaled_prediction

@@ -24,38 +24,38 @@ def main():
 
     # Load env variables
     load_dotenv()
-    project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     
     # Get site from command line or fall back to .env
     if args.site:
         site = args.site
         print(f"✓ Using site from command line: {site}")
+        # load vars from config file
+        config = load_site_config(site)
+        epsg = config['epsg']
+        openTopoAPIkey = config['openTopoAPIkey']
+        inferenceShpPath = config['inferenceShpPath']
     else:
         site = os.getenv('site')
         if not site:
             raise ValueError("Site must be specified via --site flag or in .env file")
         print(f"✓ Using site from .env file: {site}")
-    
+        epsg = int(os.getenv('epsg'))
+        openTopoAPIkey = os.getenv('openTopoAPIkey')
+        inferenceShpPath = os.getenv('inferenceShpPath')
+
+
     # Load other env variables
     chmPath = os.getenv('chmPath')
     chmReducedPath = os.getenv('chmReducedPath')
     shpPath = os.getenv('shpPath')
-    #epsg = int(os.getenv('epsg'))
-    #inferenceShpPath = os.getenv('inferenceShpPath')
     customTrainShpPath = os.getenv('customTrainShpPath')
     fp_path = os.getenv('fp_path')
-    #openTopoAPIkey = os.getenv('openTopoAPIkey')
     maxarAPIkey = os.getenv('maxarAPIkey')
     customLidarTifPath = os.getenv('customLidarTifPath')
     numTrainImages = 1000
 
-    # FIXME: patch for using sites.json
-    config = load_site_config(site)
-    epsg = config['epsg']
-    openTopoAPIkey = config['openTopoAPIkey']
-    inferenceShpPath = config['inferenceShpPath']
-
     # Path definitions
+    project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     site_data_path = os.path.join(project_path, f'{site}_data')
     lidar_tiles_path = os.path.join(site_data_path, 'chm')
     pathToLidarResources = os.path.join(os.path.dirname(__file__), "resources.geojson")
