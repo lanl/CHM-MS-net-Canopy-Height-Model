@@ -93,7 +93,7 @@ croppedOutputRasterPath = os.path.join(inf_data_path, f'{site}_merged_CHM_inf.ti
 try:
     # SITE-SPECIFIC weight selection - THIS IS THE KEY CHANGE!
     # Looks for models in: lightning_logs/{site}_model/version_X/checkpoints/
-    weightsRoot = os.path.join(project_path, 'SatCHM', 'ms_net', 'lightning_logs')
+    weightsRoot = os.path.join(project_path, 'CHM-MS-net-Canopy-Height-Model', 'ms_net', 'lightning_logs')
     site_model_dir = os.path.join(weightsRoot, f"{site}_model")
     
     if not os.path.exists(site_model_dir):
@@ -264,9 +264,9 @@ print(f'Scaled CHM tif, saved to {scaledOutputRasterPath}')
 
 ############# GENERATE TREELIST ####################
 
-# print('Generating treelist with cloud2trees. This will take a while...')
-# if rdsPath != None:
-#     utils.genTreelist(tifPath=croppedOutputRasterPath, projectPath=project_path, rdsPath=rdsPath, epsg=epsg)
-# else:
-#     utils.genTreelist(tifPath=croppedOutputRasterPath, projectPath=project_path, epsg=epsg)
-# print(f'Generated treelist, saved to {os.path.join(os.path.dirname(croppedOutputRasterPath), "treelist.csv")}')
+print('Generating treelist with cloud2trees. This will take a while...')
+if rdsPath != None:
+    utils.genTreelist(tifPath=croppedOutputRasterPath, projectPath=project_path, rdsPath=rdsPath, epsg=epsg)
+else:
+    utils.genTreelist(tifPath=croppedOutputRasterPath, projectPath=project_path, epsg=epsg)
+print(f'Generated treelist, saved to {os.path.join(os.path.dirname(croppedOutputRasterPath), "treelist.csv")}')

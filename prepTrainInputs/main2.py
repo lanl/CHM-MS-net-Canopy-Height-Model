@@ -61,6 +61,7 @@ os.makedirs(wvimgMergedPath, exist_ok=True)
 utils.mergeTifs(pathToWvimg, wvimgMergedPath)
 print(f'Saved merged wvimg tiles to {wvimgMergedPath}')
 
+#FIXME: There really should be a check to make sure that sites.json contains the correct EPSG code in main1.py so that this doesn't fail
 # verify that wvimg is in correct crs
 utils.checkCRS(wvimgMergedPath, epsg)
 

@@ -278,6 +278,8 @@ def load_or_create_model(params, net_dict):
     # Load checkpoint
     # ---------------------------------------------------------
 
+    model_loc = "/project/wildfirehydro/ltiede/CHM_2/CHM-MS-net-Canopy-Height-Model/ms_net/lightning_logs/fs_nov_9_model/version_0/checkpoints/epoch-epoch=969.ckpt"
+
     model = MS_Net.load_from_checkpoint(
         model_loc,
         net_name=net_name,
@@ -344,7 +346,7 @@ def setup_trainer(params, site, net_dict=None, new_model=False):
     )
     
     if new_model and net_dict is not None :
-    logger.log_hyperparams(net_dict)
+        logger.log_hyperparams(net_dict)
 
     print(f"✓ Models will be saved to: lightning_logs/{site}_model/")
 
