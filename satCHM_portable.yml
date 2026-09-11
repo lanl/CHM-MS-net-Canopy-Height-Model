@@ -38,3 +38,5 @@ dependencies:
       - torch
       - torchvision
       - torchaudio
+      - earthengine-api     # added google earth engine dependencies
+      - google-auth
