@@ -225,19 +225,20 @@ def evaluate_validation_model(
                 for m in masks
             ]
 
-            print("Number of x features:", len(x))
-            for i, feature in enumerate(x):
-                print(f"x[{i}] type={type(feature)}")
-                if isinstance(feature, (list, tuple)):
-                    print(f"  number of scales: {len(feature)}")
-                    for j, scale in enumerate(feature):
-                        print(f"  x[{i}][{j}] shape={scale.shape}")
-                else:
-                    print(f"  shape={feature.shape}")
+            # # Debug code
+            # print("Number of x features:", len(x))
+            # for i, feature in enumerate(x):
+            #     print(f"x[{i}] type={type(feature)}")
+            #     if isinstance(feature, (list, tuple)):
+            #         print(f"  number of scales: {len(feature)}")
+            #         for j, scale in enumerate(feature):
+            #             print(f"  x[{i}][{j}] shape={scale.shape}")
+            #     else:
+            #         print(f"  shape={feature.shape}")
             
             # Highest-resolution input
             pan = x[2][data_point_index]
-            print("Finest-resolution input shape:", pan.shape)
+            #print("Finest-resolution input shape:", pan.shape)
             pan = pan.detach().cpu()
             pan = pan[0]
 
