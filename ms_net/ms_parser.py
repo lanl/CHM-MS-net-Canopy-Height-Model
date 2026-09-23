@@ -62,6 +62,10 @@ def parse_args(argv=None):
     parser.add_argument("--check_val_every_n_epoch", default=2, type=int)
     parser.add_argument("--gradient_clip_val", default=1.0, type=float)
 
+    # ALPHA EARTH
+    # parser.add_argument("--use-ae", default=False, type=str2bool, help='Enable AlphaEarth 64‑band embeddings')
+    parser.add_argument("--use-ae", action="store_true")
+
     # EVALUATION PARAMETERS
     parser.add_argument("--eval-only", action="store_true")         # defaults to False. True when passed
 

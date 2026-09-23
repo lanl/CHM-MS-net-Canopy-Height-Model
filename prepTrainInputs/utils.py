@@ -99,7 +99,7 @@ def saveRasterToUTM(rasterPath, epsg, savePath):
             'transform': transform,
             'width': width,
             'height': height,
-            'no data': 0
+            'nodata': 0
         })
 
         with rasterio.open(savePath, 'w', **kwargs) as dst:
@@ -903,11 +903,14 @@ def mergeTifs(inputPath, savePath, target_resolution=0.5):
 
         # Recursively search for all tif tiles and metadata xml in the subfolder
         for root, _, files in os.walk(subfolder):
+
+            #if file.endswith('XML') and 'MUL' in os.path.abspath(os.path.join(root, file)): 
+
             for file in files:
-                if file.lower().endswith(".tif") and "P" in root:
+                if file.lower().endswith(".tif") and "PAN" in root:
                     tif_files.append(os.path.join(root, file))
 
-                if file.lower().endswith(".xml") and "P" in root and "tif" not in file.lower():
+                if file.lower().endswith(".xml") and "PAN" in root and "tif" not in file.lower():
                     metadata_xml = os.path.join(root, file)
 
         if not tif_files:
@@ -1072,7 +1075,7 @@ def saveWvimgMetadata(wvimgPath, savePath, prewvimgPath):
             # print("file:", type(file), repr(file))
             # print("root:", type(root), repr(root))
 
-            #if file.endswith('XML') and (('PAN' in os.path.abspath(os.path.join(root, file))) or ('PSH' in os.path.abspath(os.path.join(root, file)))) :
+            #if file.endswith('XML') and 'MUL' in os.path.abspath(os.path.join(root, file)):        # if we want to implement 4 channel + Pan  (5 channel total)
             if file.endswith('XML') and 'PAN' in os.path.abspath(os.path.join(root, file)):
                 
                 full_path = os.path.join(root, file)
@@ -1248,6 +1251,8 @@ def process_tile(tile_info, pathToRaster, outputPath, crs, tileSize, res, dataty
             outputPath,
             f"{os.path.splitext(os.path.basename(pathToRaster))[0]}_{int(tile_left)}_{int(tile_top)}.tif"
         )
+    elif datatype == 'ae':
+        outfile = os.path.join(outputPath, f"{int(tile_left)}_{int(tile_top)}.tif")
     else:
         outfile = os.path.join(outputPath, f"{int(tile_left)}_{int(tile_top)}.tif")
 
@@ -1258,11 +1263,57 @@ def process_tile(tile_info, pathToRaster, outputPath, crs, tileSize, res, dataty
         f"--bounds {bbox} "
         f"--res {res} "
         f"--resampling cubic "
-        f"--overwrite"
     )
+    
+    # Use AlphaEarth-specific compression only for AlphaEarth tiles.
+    # Use tiled GeoTIFF output for DEM without changing its values or resampling.
+    if datatype == 'ae':
+        projcmd += "--co COMPRESS=ZSTD --co PREDICTOR=2 --co TILED=YES "
+    elif datatype == 'DEM':
+        projcmd += (
+            "--co TILED=YES "
+            "--co BLOCKXSIZE=256 "
+            "--co BLOCKYSIZE=256 "
+        )
 
-    devnull = open(os.devnull, 'w')
-    subprocess.call(projcmd, shell=True, stdout=devnull, stderr=devnull)
+
+    projcmd += "--overwrite"
+
+    #devnull = open(os.devnull, 'w')
+    #subprocess.call(projcmd, shell=True, stdout=devnull, stderr=devnull)
+
+    # Execute the rio warp command with more robust error catching
+    try:
+        # print(f"rio warp command for {outfile}:\n{projcmd}", flush=True)
+        result = subprocess.run(
+            projcmd,
+            shell=True,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        # print(f"rio warp return code for {outfile}: {result.returncode}", flush=True)
+        # if result.stderr and not result.stderr.startswith("WARNING:rasterio"):
+        #     print(f"rio warp stderr for {outfile}:\n{result.stderr}", flush=True)
+        # with rasterio.open(outfile) as warped:
+        #     print(
+        #         f"Output profile for {outfile}: "
+        #         f"width={warped.width}, "
+        #         f"height={warped.height}, "
+        #         f"tiled={warped.is_tiled}, "
+        #         f"blocks={warped.block_shapes}",
+        #         flush=True,
+        #     )
+    except subprocess.CalledProcessError as e:
+        print(f"Error warping {outfile}: {e}", flush=True)
+        print(f"Command: {projcmd}", flush=True)
+        print(f"stderr:\n{e.stderr}", flush=True)
+        raise
+    except OSError as e:
+        print(f"OS error while running rio warp for {outfile}: {e}", flush=True)
+        raise
+
 
     # Optional quality checks
     with rasterio.open(outfile) as tile:
@@ -1271,14 +1322,31 @@ def process_tile(tile_info, pathToRaster, outputPath, crs, tileSize, res, dataty
         if datatype == 'wvimg':
             nodata_value = 0
 
-        if nodata_value is not None:
-            contains_nodata = (data == nodata_value).any()
-            if contains_nodata:
-                print(f"Tile {os.path.basename(outfile)} contains NoData ({nodata_value}).")
-                os.remove(outfile)
-                if datatype.lower() == 'chm':
-                    print(f'REJECTING A CHM TILE WITH NO DATA')
-                return False
+        if datatype == 'ae':
+            # For AE: check NoData FRACTION instead of any-hit deletion
+            # AE tiles are 64-band int8, may have nodata_value set
+            if nodata_value is not None:
+                nodata_pixels = (data == nodata_value).sum()
+                total_pixels = data.size
+                nodata_fraction = nodata_pixels / total_pixels
+                
+                # Configurable threshold (0.0 = current strict behavior)
+                nodata_threshold = 0.0  # TODO: make this a parameter if needed
+                
+                if nodata_fraction > nodata_threshold:
+                    print(f"Tile {os.path.basename(outfile)} has {nodata_fraction:.2%} NoData (threshold: {nodata_threshold:.2%})")
+                    os.remove(outfile)
+                    return False
+        else:
+            # Existing behavior for wvimg/dem/chm - unchanged
+            if nodata_value is not None:
+                contains_nodata = (data == nodata_value).any()
+                if contains_nodata:
+                    print(f"Tile {os.path.basename(outfile)} contains NoData ({nodata_value}).")
+                    os.remove(outfile)
+                    if datatype.lower() == 'chm':
+                        print(f'REJECTING A CHM TILE WITH NO DATA')
+                    return False
 
     return True
 
@@ -1357,6 +1425,66 @@ def tileRaster(
         results = pool.map(process_tile_partial, tile_info_list)
 
     return results
+
+
+def tileAlphaEarth(
+    pathToRaster: str,
+    outputPath: str,
+    anchors_csv: str,
+    epsg: int,
+    tileSize: int = 256,
+    res: float = 0.5,
+    resampling: str = 'cubic',
+    expected_bands: int = 64
+) -> None:
+    """
+    Tile AlphaEarth embeddings using existing tileRaster machinery.
+    
+    Thin wrapper that delegates to tileRaster with dataType='ae',
+    then validates output tiles have correct band count.
+    
+    Args:
+        pathToRaster: Path to native 10m AlphaEarth raster
+        outputPath: Output directory for 0.5m tiles
+        anchors_csv: Path to CSV with columns ["X","Y"]
+        epsg: EPSG code (passed to process_tile for CRS string)
+        tileSize: Tile size in meters (default 256)
+        res: Target resolution in meters/pixel (default 0.5)
+        resampling: Resampling method (default 'cubic')
+        expected_bands: Expected band count for validation (default 64)
+    """
+    from pathlib import Path
+    
+    # Delegate to existing tileRaster
+    tileRaster(
+        pathToRaster=pathToRaster,
+        outputPath=outputPath,
+        dataType='ae',
+        tileSize=tileSize,
+        anchors_csv=anchors_csv,
+        res=res
+    )
+    
+    # Post-validation: check band count on output tiles
+    output_tiles = list(Path(outputPath).glob("*.tif"))
+    if not output_tiles:
+        print(f"Warning: No tiles generated in {outputPath}")
+        return
+    
+    # Spot-check first 5 tiles
+    for tile in output_tiles[:5]:
+        with rasterio.open(tile) as src:
+            if src.count != expected_bands:
+                raise ValueError(
+                    f"Tile {tile.name} has {src.count} bands, expected {expected_bands}"
+                )
+            if src.dtypes[0] != 'int8':
+                raise ValueError(
+                    f"Tile {tile.name} has dtype {src.dtypes[0]}, expected int8"
+                )
+    
+    print(f"✓ Generated {len(output_tiles)} AE tiles with {expected_bands} int8 bands each")
+
 
 def findIntTiles(metadataPath, lidarShapePath, epsg):
     tiles = []
@@ -1466,6 +1594,7 @@ def renameTiles(ms_data_path):
     wvimg_path = os.path.join(ms_data_path, "wvimg")
     dem_path = os.path.join(ms_data_path, "dem")
     lidar_path = os.path.join(ms_data_path, "chm")
+    ae_path = os.path.join(ms_data_path, "ae")  # ADD AlphaEarth path
 
     # Helper to rename or symlink tiles in target_dir based on wvimg
     def process_against_wvimg(target_dir):
@@ -1508,6 +1637,9 @@ def renameTiles(ms_data_path):
     # Only rename lidar data if it exists (not inference)
     if os.path.isdir(lidar_path):
         process_against_wvimg(lidar_path)
+    # Process AlphaEarth if it exists
+    if os.path.isdir(ae_path):
+        process_against_wvimg(ae_path)
 
     # # Clean up any files in DEM and lidar that don't have exactly 2 underscores
     # for cleanup_dir in [dem_path, lidar_path]:
@@ -1525,6 +1657,15 @@ def makeLists(base_dir: str, site, random_seed=42):
     """
     # Define the subdirectories
     subdirs = ['dem', 'chm', 'wvimg']
+    
+    # Conditionally include 'ae' if the directory exists and has tiles
+    ae_path = os.path.join(base_dir, 'ae')
+    if os.path.isdir(ae_path):
+        ae_tiles = [f for f in os.listdir(ae_path) 
+                    if f.lower().endswith('.tif') and not f.lower().endswith('.tif.aux.xml')]
+        if ae_tiles:
+            subdirs.append('ae')
+            print(f"Including 'ae' in dataset intersection ({len(ae_tiles)} tiles found)")
     
     # Get the set of files for each subdirectory
     file_sets = []
@@ -2423,6 +2564,15 @@ def makeInfList(base_dir: str, site):
     # Define the subdirectories
     # subdirs = ['dem', 'wvimg', 'lidar']
     subdirs = ['dem', 'chm', 'wvimg']
+    
+    # Conditionally include 'ae' if the directory exists and has tiles
+    ae_path = os.path.join(base_dir, 'ae')
+    if os.path.isdir(ae_path):
+        ae_tiles = [f for f in os.listdir(ae_path) 
+                    if f.lower().endswith('.tif') and not f.lower().endswith('.tif.aux.xml')]
+        if ae_tiles:
+            subdirs.append('ae')
+            print(f"Including 'ae' in inference intersection ({len(ae_tiles)} tiles found)")
     
     # Get the set of files for each subdirectory
     file_sets = []

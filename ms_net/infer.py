@@ -12,11 +12,11 @@ from rasterio.transform import from_origin
 try: 
     from .network_2D_lightning import MS_Net
     from .ms_parser import parse_args
-    from .pore_utils_2D import get_dataloader
+    from .pore_utils_2D import get_dataloader, num_input_channels
 except (ImportError, ModuleNotFoundError):
     from network_2D_lightning import MS_Net
     from ms_parser import parse_args
-    from pore_utils_2D import get_dataloader
+    from pore_utils_2D import get_dataloader, num_input_channels
 
 
 def run_inference(data_path, site, NORM_CONST, model_loc, epsg_code, phase='inf'):
@@ -26,12 +26,17 @@ def run_inference(data_path, site, NORM_CONST, model_loc, epsg_code, phase='inf'
     # choose device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+    # Parse arguments and set up feature list with optional AlphaEarth
     params = parse_args(['--data_loc', data_path])
     params.inf_list = os.path.join(data_path, f'{site}_inflist.txt')
     if phase == 'test':
         params.inf_list = os.path.join(data_path, f'{site}_testlist.txt')
 
-    params.x_array = ['wvimg', 'solar', 'sensor', 'dem']
+    # Conditional AlphaEarth inclusion (opt‑in)
+    if getattr(params, 'use_ae', False):
+        params.x_array = ['wvimg', 'solar', 'sensor', 'dem', 'ae']
+    else:
+        params.x_array = ['wvimg', 'solar', 'sensor', 'dem']
     params.y_array = ['chm']
     params.x_xform = [None, None, None, None]
     params.y_xform = [None]
@@ -50,7 +55,7 @@ def run_inference(data_path, site, NORM_CONST, model_loc, epsg_code, phase='inf'
         model_loc,
         net_name='FireNet',
         num_scales=3,
-        num_features=4,
+        num_features=num_input_channels(params.x_array),
         num_filters=8,
         f_mult=4,
         map_location=device,            # <—

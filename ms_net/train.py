@@ -18,7 +18,7 @@ from multiprocessing import freeze_support
 
 from network_2D_lightning import MS_Net
 from ms_parser import parse_args
-from pore_utils_2D import get_dataloader, load_hparams
+from pore_utils_2D import get_dataloader, load_hparams, num_input_channels
 from plotting_utils import evaluate_validation_model
 import re
 
@@ -63,9 +63,14 @@ def setup_params(directory, site):
     params = parse_args()
     params.train_list = os.path.join(directory, f'{site}_trainlist.txt')
     params.val_list = os.path.join(directory, f'{site}_vallist.txt')
-    params.x_array = ['wvimg', 'solar', 'sensor', 'dem']
+    # Conditional inclusion of AlphaEarth embeddings (opt‑in)
+    if getattr(params, 'use_ae', False):
+        params.x_array = ['wvimg', 'solar', 'sensor', 'dem', 'ae']
+    else:
+        params.x_array = ['wvimg', 'solar', 'sensor', 'dem']
     params.y_array = ['chm']
-    params.x_xform = [None, None, None, None]
+    #params.x_xform = [None, None, None, None]
+    params.x_xform = [None] * len(params.x_array)
     params.y_xform = [None]
     params.c_xform = [None]
     params.model_loc = 'chks'
@@ -135,7 +140,7 @@ def load_or_create_model(params, net_dict):
         model = MS_Net(
             net_name=params.net_name,
             num_scales=params.num_scales,
-            num_features=len(params.x_array),
+            num_features=num_input_channels(params.x_array),
             num_filters=params.num_filters,
             f_mult=params.f_mult,
             lr=params.LR,
@@ -159,7 +164,7 @@ def load_or_create_model(params, net_dict):
         model = MS_Net(
             net_name=params.net_name,
             num_scales=params.num_scales,
-            num_features=len(params.x_array),
+            num_features=num_input_channels(params.x_array),
             num_filters=params.num_filters,
             f_mult=params.f_mult,
             lr=params.LR,
@@ -194,7 +199,7 @@ def load_or_create_model(params, net_dict):
         model = MS_Net(
             net_name=params.net_name,
             num_scales=params.num_scales,
-            num_features=len(params.x_array),
+            num_features=num_input_channels(params.x_array),
             num_filters=params.num_filters,
             f_mult=params.f_mult,
             lr=params.LR,
@@ -221,7 +226,7 @@ def load_or_create_model(params, net_dict):
         model = MS_Net(
             net_name=params.net_name,
             num_scales=params.num_scales,
-            num_features=len(params.x_array),
+            num_features=num_input_channels(params.x_array),
             num_filters=params.num_filters,
             f_mult=params.f_mult,
             lr=params.LR,
@@ -265,6 +270,37 @@ def load_or_create_model(params, net_dict):
         num_filters = yaml_dict['num_filters']
         f_mult = yaml_dict['f_mult']
 
+        # Check for use_ae compatibility
+        checkpoint_use_ae = yaml_dict.get('use_ae', False)
+        current_use_ae = getattr(params, 'use_ae', False)
+        
+        if checkpoint_use_ae != current_use_ae:
+            print(f"\n{'='*70}")
+            print(f"ARCHITECTURE MISMATCH DETECTED")
+            print(f"{'='*70}")
+            print(f"Checkpoint was trained with: use_ae={checkpoint_use_ae}")
+            print(f"You are requesting:          use_ae={current_use_ae}")
+            print(f"\nThese architectures are incompatible:")
+            checkpoint_channels = 68 if checkpoint_use_ae else 4
+            current_channels = 68 if current_use_ae else 4
+            print(f"  - Checkpoint model: {checkpoint_channels} channels")
+            print(f"  - Current request:  {current_channels} channels")
+            print(f"\nCreating a NEW model instead of loading incompatible checkpoint.")
+            print(f"{'='*70}\n")
+            
+            # Create new model instead of trying to load incompatible checkpoint
+            model = MS_Net(
+                net_name=params.net_name,
+                num_scales=params.num_scales,
+                num_features=num_input_channels(params.x_array),
+                num_filters=params.num_filters,
+                f_mult=params.f_mult,
+                lr=params.LR,
+                hparams=net_dict,
+                steps=params.steps,
+            )
+            return model, True
+
     else:
         print("hparams.yaml is empty.")
         print("Using current params to reconstruct legacy checkpoint.")
@@ -278,13 +314,13 @@ def load_or_create_model(params, net_dict):
     # Load checkpoint
     # ---------------------------------------------------------
 
-    model_loc = "/project/wildfirehydro/ltiede/CHM_2/CHM-MS-net-Canopy-Height-Model/ms_net/lightning_logs/fs_nov_9_model/version_0/checkpoints/epoch-epoch=969.ckpt"
+    #model_loc = "/project/wildfirehydro/ltiede/CHM_2/CHM-MS-net-Canopy-Height-Model/ms_net/lightning_logs/fs_train_ae_model/version_0/checkpoints/epoch-epoch=579.ckpt"
 
     model = MS_Net.load_from_checkpoint(
         model_loc,
         net_name=net_name,
         num_scales=num_scales,
-        num_features=len(params.x_array),
+        num_features=num_input_channels(params.x_array),
         num_filters=num_filters,
         f_mult=f_mult
     )
@@ -404,7 +440,7 @@ def train_main(data_path, NORM_CONST, site):
         val_dataloader=val_dataloader['val'],
         norm_const=NORM_CONST,
         plot_sample=True,
-        data_point_index=10,                    # change to view a different data point
+        data_point_index=0,                     # change to view a different data point
         save_plot="validation_comparison.png"
     )
     

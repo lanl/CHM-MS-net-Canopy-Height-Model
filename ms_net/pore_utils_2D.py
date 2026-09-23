@@ -22,10 +22,44 @@ except (ImportError, ModuleNotFoundError):
 from PIL import Image
 from matplotlib import pyplot as plt
 import pandas as pd
+import rasterio
 
 
 _MIN = 0
 _MAX = 1111111111111115000
+
+# ────────────────────────────────────────────────────────────────────
+# AlphaEarth embedding constants
+# ────────────────────────────────────────────────────────────────────
+AE_BANDS = 64
+AE_SHIFT = 1.0    # map embeddings [-1,1] -> [0,1]
+AE_SCALE = 0.5    # x_out = (x + AE_SHIFT) * AE_SCALE
+
+# Single source of truth for channel counts per feature
+FEATURE_CHANNELS = {
+    'wvimg': 1,
+    'solar': 1, 
+    'sensor': 1,
+    'dem': 1,
+    'ae': AE_BANDS,
+    'chm': 1
+}
+
+def num_input_channels(x_array):
+    """
+    Calculate total number of input channels from feature list.
+    
+    Parameters
+    ----------
+    x_array : list of str
+        List of feature names (e.g., ['wvimg', 'solar', 'sensor', 'dem', 'ae'])
+    
+    Returns
+    -------
+    int
+        Total number of channels (e.g., 68 for 4 single-channel + 64-channel ae)
+    """
+    return sum(FEATURE_CHANNELS[f] for f in x_array)
 
 
 
@@ -543,7 +577,7 @@ def get_downscaled_list(x, net_dict):
     Parameters
     __________
     x : array
-        contains the input data
+        contains the input data (can be 2D (H,W) or 3D (C,H,W))
     net_dict : dict
         dictionary that contains file paths for the data
 
@@ -552,7 +586,18 @@ def get_downscaled_list(x, net_dict):
     ds_x[::-1] : list of tensors
          list of downscaled tensors 
     """
-    x = torch.Tensor( add_dims(x, 1) )
+    # Guard for 3D inputs (e.g., 64-band AlphaEarth embeddings)
+    # 2D input (H,W) → add 1 dim → (1,H,W)
+    # 3D input (C,H,W) → already has channel dim, add batch dim → (1,C,H,W) is wrong!
+    # For 3D, we want (C,H,W) as-is, then batching happens at a higher level
+    if x.ndim == 2:
+        x = torch.Tensor( add_dims(x, 1) )
+    elif x.ndim == 3:
+        # Already (C, H, W) for multi-channel features like 'ae'
+        x = torch.Tensor(x)
+    else:
+        raise ValueError(f"Unexpected input shape: {x.shape} (ndim={x.ndim})")
+    
     ds_x = []
     ds_x.append(x)
     for i in range( net_dict['num_scales']-1 ):  
@@ -622,6 +667,28 @@ def load_samples(feat, sample_name, data_path, NORM_CONST): #, phasename): #, ne
         sample = sample[:,:,0] / NORM_CONST
         sample[sample<0] = 0
         # print('chm shape is '+str(sample.shape))
+    elif feat == 'ae':
+        # AlphaEarth embeddings: 64-band GeoTIFF, int8 quantized
+        # Must use rasterio (plt.imread fails on >4 bands)
+        with rasterio.open(os.path.join(data_path, 'ae', sample_name)) as src:
+            sample = src.read().astype(np.float32)  # (64, H, W) — NO /255
+        
+        # Two-stage preprocessing transform per Google's documentation:
+        # Stage 1: De-quantize int8 → [-1, 1] range
+        # Formula: ((values / 127.5) ** 2) * sign(values)
+        # This handles the quantization applied by Google when storing embeddings
+        de_quantized = ((sample / 127.5) ** 2) * np.sign(sample)
+        
+        # Stage 2: Shift [-1, 1] → [0, 1] to match other features
+        # NoData value -1 (from original -128) maps to 0, matching our convention
+        sample = (de_quantized + AE_SHIFT) * AE_SCALE
+        
+        # Log NaN statistics before replacement (for debugging/validation)
+        nan_count = np.sum(~np.isfinite(sample))
+        if nan_count > 0:
+            nan_fraction = nan_count / sample.size
+            if nan_fraction > 0.01:  # Log if >1% NaN
+                print(f'Warning: AE sample {sample_name} has {nan_fraction:.2%} NaN values')
     else:
         print(f'feat: {feat}')
         raise NameError('Wrong feature name or not implemented')

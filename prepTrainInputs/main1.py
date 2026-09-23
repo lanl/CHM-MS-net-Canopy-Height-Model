@@ -10,8 +10,16 @@ import argparse
 import geopandas as gpd
 from dotenv import load_dotenv
 import utils
-from site_config import load_site_config
+from rasterAE import fetch_alphaEarth
+import rasterio
+import sys
 
+# import site_config from higher scope
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    from site_config import load_site_config
+finally:
+    sys.path.pop(0)
 
 def main():
     ################### SETUP #################
@@ -20,6 +28,7 @@ def main():
     parser = argparse.ArgumentParser(description='Prepare training data (step 1) for a specific site')
     parser.add_argument('--site', type=str, required=False,
                        help='Site code (e.g., ws, lm, qm). Overrides .env file if provided.')
+    parser.add_argument('--use-ae', action="store_true")
     args = parser.parse_args()
 
     # Load env variables
@@ -34,6 +43,8 @@ def main():
         epsg = config['epsg']
         openTopoAPIkey = config['openTopoAPIkey']
         inferenceShpPath = config['inferenceShpPath']
+        geeKey = config['geeKey']
+        geeProject = config['geeProject']
     else:
         site = os.getenv('site')
         if not site:
@@ -41,7 +52,10 @@ def main():
         print(f"✓ Using site from .env file: {site}")
         epsg = int(os.getenv('epsg'))
         openTopoAPIkey = os.getenv('openTopoAPIkey')
-        inferenceShpPath = os.getenv('inferenceShpPath')
+        #inferenceShpPath = os.getenv('inferenceShpPath')
+        # FIXME: maybe implement these, or not if we just switch to using config file
+        #geeKey = os.getenv['geeKey']
+        #geeProject = os.getenv['geeProject']
 
 
     # Load other env variables
@@ -56,6 +70,7 @@ def main():
 
     # Path definitions
     project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    print(f"project_path: {project_path}")
     site_data_path = os.path.join(project_path, f'{site}_data')
     lidar_tiles_path = os.path.join(site_data_path, 'chm')
     pathToLidarResources = os.path.join(os.path.dirname(__file__), "resources.geojson")
@@ -69,6 +84,12 @@ def main():
     print(f'CREATING FOLDER: {wvimg_inf_path}')
     os.makedirs(wvimg_train_path, exist_ok=True)
     os.makedirs(wvimg_inf_path, exist_ok=True)
+
+    # AlphaEarth paths and folder creations
+    ae_tiles_path = os.path.join(site_data_path, 'ae')
+    os.makedirs(ae_tiles_path, exist_ok=True)
+    source_raster = os.path.join(ae_tiles_path, 'ae_source.tif')
+
 
 
     ############ PREPARE SHAPES AND ANCHORS #############
@@ -155,32 +176,32 @@ def main():
 
     ############# PROCESS LIDAR DATA ############################
 
-    if customLidarTifPath and os.path.isfile(customLidarTifPath):
-        print('Tiling lidar data for model partition')
-        lidarBaseName, _ = os.path.splitext(customLidarTifPath)
-        lidar_UTM_path = f'{lidarBaseName}_utm.tif'
-        print(f'lidar_UTM_path: {lidar_UTM_path}')
-        utils.tileRaster(
-            pathToRaster=lidar_UTM_path,
-            outputPath=lidar_tiles_path,
-            dataType='chm',
-            anchors_csv=trainAnchorsPath,
-        )
-        print(f'Saved lidar tiles to: {lidar_tiles_path}')
+    # if customLidarTifPath and os.path.isfile(customLidarTifPath):
+    #     print('Tiling lidar data for model partition')
+    #     lidarBaseName, _ = os.path.splitext(customLidarTifPath)
+    #     lidar_UTM_path = f'{lidarBaseName}_utm.tif'
+    #     print(f'lidar_UTM_path: {lidar_UTM_path}')
+    #     utils.tileRaster(
+    #         pathToRaster=lidar_UTM_path,
+    #         outputPath=lidar_tiles_path,
+    #         dataType='chm',
+    #         anchors_csv=trainAnchorsPath,
+    #     )
+    #     print(f'Saved lidar tiles to: {lidar_tiles_path}')
 
-    else:
-        print('Downloading lidar data from USGS 3DEP')
-        alignmentYear = utils.createLidarData(
-            trainShpPath,
-            pathToLidarResources,
-            epsg,
-            lidarTilesPath=lidar_tiles_path,
-            anchors_csv=trainAnchorsPath,
-            projectPath=project_path,
-        )
-        utils.remove_rasters_with_nodata(lidar_tiles_path, dry_run=False)
-        shutil.rmtree(os.path.join(lidar_tiles_path, '_laz_tmp'), ignore_errors=True)
-        print(f'Saved lidar data to: {lidar_tiles_path}')
+    # else:
+    #     print('Downloading lidar data from USGS 3DEP')
+    #     alignmentYear = utils.createLidarData(
+    #         trainShpPath,
+    #         pathToLidarResources,
+    #         epsg,
+    #         lidarTilesPath=lidar_tiles_path,
+    #         anchors_csv=trainAnchorsPath,
+    #         projectPath=project_path,
+    #     )
+    #     utils.remove_rasters_with_nodata(lidar_tiles_path, dry_run=False)
+    #     shutil.rmtree(os.path.join(lidar_tiles_path, '_laz_tmp'), ignore_errors=True)
+    #     print(f'Saved lidar data to: {lidar_tiles_path}')
 
     
     ################## PROCESS DEM DATA ###########################
@@ -233,12 +254,37 @@ def main():
     shutil.rmtree(DEM_prenorm_tiles_path, ignore_errors=True)
     print(f'Saved normalized DEM tiles to {DEM_tiles_path}')
 
+
+    alignmentYear = 2018.0
+
+    # conditional if AE is being used
+    if getattr(args, 'use_ae', True):
+
+        # Download AlphaEarth Embeddings
+        print(f'Fetching AlphaEarth data to {source_raster}')
+        
+        result = fetch_alphaEarth(
+            geojson_path=inferenceShpPath,
+            save_path=str(source_raster),
+            year=alignmentYear,
+            epsg=epsg,
+            sa_key_path=geeKey,
+            project=geeProject,
+            temp_dir=ae_tiles_path
+        )
+        print(f'Saved AlphaEarth tile to {source_raster}')
+        # Validate source
+        with rasterio.open(result) as src:
+            print(f"Source: {src.count} bands, {src.dtypes[0]}, {src.width}x{src.height}, {src.res}")
+                # Expected: Source: 64 bands, int8, WxH, (10.0, 10.0)
+
+
     print('==========================================================')
     print(f'Align satellite imagery to year: {alignmentYear}')
     print(f'Train shape saved at: {trainShpPath}')
     print(f'Inference shape saved at: {inf_shp_output_path}')
     print('==========================================================')
 
-# ✅ Standard multiprocessing guard
+# Standard multiprocessing guard
 if __name__ == "__main__":
     main()

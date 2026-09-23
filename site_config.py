@@ -30,9 +30,10 @@ def load_site_config(site_code):
         FileNotFoundError: If sites.json doesn't exist
         KeyError: If site_code is not found in sites.json
     """
-    # Find sites.json in project root
-    script_dir = Path(__file__).resolve().parent
-    sites_json_path = script_dir / 'sites.json'
+    # Find sites.json in project directory
+    script_dir = Path(__file__).resolve()
+    project_dir = script_dir.parent
+    sites_json_path = project_dir / 'sites.json'
     
     if not sites_json_path.exists():
         raise FileNotFoundError(
@@ -56,10 +57,14 @@ def load_site_config(site_code):
     config = sites[site_code].copy()
     
     # Add computed paths
-    project_root = script_dir
+    project_parent = project_dir.parent
     config['site'] = site_code
     config['inferenceShpPath'] = str(
-        project_root / 'downloads' / site_code / 'infShp' / config['inference_shape']
+        project_parent / 'downloads' / site_code / 'infShp' / config['inference_shape']
+    )
+    # FIXME: find a good place for gee_key, for now it is in main project dir
+    config['geeKey'] = str(
+        project_dir / config['geeKey']
     )
     
     return config

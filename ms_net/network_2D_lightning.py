@@ -303,6 +303,8 @@ class MS_Net(LightningModule):
             "lr",
             "steps",
         )
+        if hparams:
+            self.save_hyperparameters(hparams)
 
         """
         Description
