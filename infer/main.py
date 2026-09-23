@@ -13,6 +13,9 @@ import argparse
 # import geopandas as gpd
 from dotenv import load_dotenv
 import time
+from prepTrainInputs.rasterAE import fetch_alphaEarth
+import json
+
 
 # import site_config from higher scope
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -38,6 +41,9 @@ def main() :
                     help='Normalization constant for CHM data (default: 46)')
     parser.add_argument('--feather-const', type=int, default=40,
                     help='Feathering constant for tile merging (default: 40)')
+    parser.add_argument('--use-ae', action="store_true",
+                    help='Enable AlphaEarth 64-band embeddings for inference')
+
     args = parser.parse_args()
 
     # Load env variables
@@ -100,6 +106,13 @@ def main() :
     metadataPath = os.path.join(project_path, 'downloads', site, 'metadata', 'DGTilesMetadata.json')
     outputRasterPath = os.path.join(inf_data_path, 'INF_chm_pred_merged.tif')
     croppedOutputRasterPath = os.path.join(inf_data_path, f'{site}_merged_CHM_inf.tif')
+
+    # AlphaEarth paths
+    ae_tiles_path = os.path.join(inf_data_path, 'ae')
+    source_raster = os.path.join(ae_tiles_path, 'ae_source.tif')
+    os.makedirs(ae_tiles_path, exist_ok=True)
+
+
 
     try:
         # SITE-SPECIFIC weight selection - THIS IS THE KEY CHANGE!
@@ -241,6 +254,70 @@ def main() :
 
     # remove prewvimg folder
     shutil.rmtree(prewvimgPath)
+
+
+    ################## RENAME AND CREATE LISTS ##############
+
+    # Extract year from wvimg metadata for AlphaEarth alignment
+    with open(metadataPath, 'r') as f:
+        metadata = json.load(f)
+    # Get the first tile's date and extract the year
+    first_tile = next(iter(metadata.values()))
+    date_str = first_tile['date']  # Format: 'YYYY-MM-DD'
+    inferenceYear = float(date_str.split('-')[0])
+    print(f'Extracted inference year from wvimg metadata: {inferenceYear}')
+
+    ################### PROCESS ALPHAEARTH DATA (CONDITIONAL) #####################
+    
+    if args.use_ae:
+        print('=== AlphaEarth Processing Enabled ===')
+
+        # Fetch AlphaEarth embeddings from GEE
+        print(f'Fetching AlphaEarth data')
+        try:
+            result = fetch_alphaEarth(
+                geojson_path=inf_shp_output_path,
+                save_path=str(source_raster),
+                year=int(inferenceYear),
+                epsg=epsg,
+                sa_key_path=geeKey,
+                project=geeProject,
+                buffer_m=512,
+                temp_dir=ae_tiles_path
+            )
+            print(f'Saved AlphaEarth source raster to {source_raster}')
+            # Validate source
+            import rasterio
+            with rasterio.open(result) as src:
+                print(f"Source: {src.count} bands, {src.dtypes[0]}, {src.width}x{src.height}, {src.res}")
+                # Expected: Source: 64 bands, int8, WxH, (10.0, 10.0)
+            
+            # Tile AlphaEarth data
+            print('Tiling AlphaEarth data for model partition')
+            utils.tileAlphaEarth(
+                pathToRaster=str(source_raster),
+                outputPath=str(ae_tiles_path),
+                anchors_csv=infAnchorsPath,
+                epsg=epsg
+            )
+            print(f'Saved AlphaEarth tiles to {ae_tiles_path}')
+            # Validate tiles
+            import glob
+            tiles = glob.glob(os.path.join(ae_tiles_path, "*.tif"))
+            print(f"Generated {len(tiles)} AlphaEarth tiles")
+            if tiles:
+                with rasterio.open(tiles[0]) as src:
+                    print(f"Tile: {src.count} bands, {src.dtypes[0]}, {src.width}x{src.height}, {src.res}")
+                    # Expected: Tile: 64 bands, int8, 512x512, (0.5, 0.5)
+        
+        except Exception as e:
+            print(f'Error processing AlphaEarth data: {e}')
+            print('Continuing without AlphaEarth embeddings...')
+            # Set flag to false so inference doesn't expect AE tiles
+            args.use_ae = False
+    else:
+        print('=== AlphaEarth Processing Disabled ===')
+
 
     ################## RENAME AND CREATE LISTS ##############
 
