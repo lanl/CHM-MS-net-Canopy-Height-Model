@@ -56,8 +56,9 @@ def main() :
         # load vars from config file
         config = load_site_config(site)
         epsg = config['epsg']
-        openTopoAPIkey = config['openTopoAPIkey']
         inferenceShpPath = config['inferenceShpPath']
+        customTrainShpPath = config['trainShpPath']
+        openTopoAPIkey = config['openTopoAPIkey']
         geeKey = config['geeKey']
         geeProject = config['geeProject']
     else:
@@ -67,18 +68,21 @@ def main() :
         print(f"✓ Using site from .env file: {site}")
         epsg = int(os.getenv('epsg'))
         openTopoAPIkey = os.getenv('openTopoAPIkey')
-        #inferenceShpPath = os.getenv('inferenceShpPath')
+        inferenceShpPath = os.getenv('inferenceShpPath')
+        customTrainShpPath = os.getenv('customTrainShpPath')
+        customLidarTifPath = os.getenv('customLidarTifPath')
         # FIXME: maybe implement these, or not if we just switch to using config file
         #geeKey = os.getenv['geeKey']
         #geeProject = os.getenv['geeProject']
 
+
     # Load other env variables
-    chmPath = os.getenv('chmPath')
-    chmReducedPath = os.getenv('chmReducedPath')
-    shpPath = os.getenv('shpPath')
-    customTrainShpPath = os.getenv('customTrainShpPath')
-    fp_path = os.getenv('fp_path')
-    maxarAPIkey = os.getenv('maxarAPIkey')
+    #chmPath = os.getenv('chmPath')
+    #chmReducedPath = os.getenv('chmReducedPath')
+    #shpPath = os.getenv('shpPath')
+    customTrainShpPath = os.getenv('customTrainShpPath')            # will overwrite custom training path for now
+    #fp_path = os.getenv('fp_path')
+    #maxarAPIkey = os.getenv('maxarAPIkey')
     customLidarTifPath = os.getenv('customLidarTifPath')
     numTrainImages = 1000
 

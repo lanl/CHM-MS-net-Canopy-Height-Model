@@ -33,7 +33,7 @@ def load_site_config(site_code):
     # Find sites.json in project directory
     script_dir = Path(__file__).resolve()
     project_dir = script_dir.parent
-    sites_json_path = project_dir / 'sites.json'
+    sites_json_path = project_dir / 'sites.json'        # probably will change to config.json at some point
     
     if not sites_json_path.exists():
         raise FileNotFoundError(
@@ -46,7 +46,7 @@ def load_site_config(site_code):
         sites = json.load(f)
     
     # Check if site exists
-    if site_code not in sites:
+    if site_code not in sites['sites']:
         available_sites = ', '.join(sites.keys())
         raise KeyError(
             f"Site '{site_code}' not found in sites.json\n"
@@ -54,7 +54,7 @@ def load_site_config(site_code):
         )
     
     # Get site config
-    config = sites[site_code].copy()
+    config = sites['sites'][site_code].copy()
     
     # Add computed paths
     project_parent = project_dir.parent
@@ -62,11 +62,16 @@ def load_site_config(site_code):
     config['inferenceShpPath'] = str(
         project_parent / 'downloads' / site_code / 'infShp' / config['inference_shape']
     )
+    # going to use the same naming scheme as .env variables 'customTrainShpPath'
+    config['trainShpPath'] = str(
+        project_parent / 'downloads' / site_code / 'trainShp' / config['train_shape']
+    )
     # FIXME: find a good place for gee_key, for now it is in main project dir
     config['geeKey'] = str(
-        project_dir / config['geeKey']
+        project_dir / sites['geeKey']
     )
-    
+    config['openTopoAPIkey'] = sites['openTopoAPIkey']
+    config['geeProject'] = sites['geeProject']
     return config
 
 
