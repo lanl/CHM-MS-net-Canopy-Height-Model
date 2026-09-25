@@ -275,12 +275,6 @@ def load_or_create_model(params, net_dict):
         return model, True
 
 
-
-def create_new_model(params, net_dict) :
-
-    return model
-
-
 def setup_trainer(params, site, net_dict=None, new_model=False):
     """
     Setup PyTorch Lightning trainer with site-specific logging.

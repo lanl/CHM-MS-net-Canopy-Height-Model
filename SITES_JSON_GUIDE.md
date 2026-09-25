@@ -24,14 +24,19 @@ The `sites.json` file provides a centralized configuration system for managing m
 ### Format
 ```json
 {
-  "site_code": {
-    "full_name": "Full Site Name",
-    "epsg": 32613,
-    "inference_shape": "site_area_32613.geojson",
-    "openTopoAPIkey": "your_api_key_here",
-    "notes": "Optional notes",
-    "customTrainShpPath": "/optional/path/to/custom/shape.geojson",
-    "customLidarTifPath": "/optional/path/to/custom/lidar.tif"
+  "openTopoAPIkey": "your_api_key_here",
+  "geeKey": "your_gee_key.json",
+  "geeProject": "gee_project_name",
+  "sites": {
+    "site_id": {
+      "full_name": "Full Site Name",
+      "epsg": 32613,
+      "inference_shape": "site_area_32613.geojson",
+      "train_shape": "site_area_32613.geojson",
+      "notes": "Optional notes",
+      "customTrainShpPath": "/optional/path/to/custom/shape.geojson",
+      "customLidarTifPath": "/optional/path/to/custom/lidar.tif"
+    }
   }
 }
 ```
