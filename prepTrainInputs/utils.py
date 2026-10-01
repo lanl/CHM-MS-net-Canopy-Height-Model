@@ -1634,19 +1634,24 @@ def renameTiles(ms_data_path):
 
     # Process DEM and lidar using wvimg as reference
     process_against_wvimg(dem_path)
-    # Only rename lidar data if it exists (not inference)
+    # Only rename lidar data if it exists (not inference
     if os.path.isdir(lidar_path):
         process_against_wvimg(lidar_path)
     # Process AlphaEarth if it exists
     if os.path.isdir(ae_path):
+        # process non-PCA constructed tifs (may deprecate or rework)
         process_against_wvimg(ae_path)
+        # process all other PCA constructed tifs
+        for paths in os.listdir(ae_path) :
+            if re.search(r"\d+d$", paths) and os.path.isdir(os.path.join(ae_path, paths)) :
+                process_against_wvimg(os.path.join(ae_path, paths))
 
-    # # Clean up any files in DEM and lidar that don't have exactly 2 underscores
-    # for cleanup_dir in [dem_path, lidar_path]:
-    #     for fname in os.listdir(cleanup_dir):
-    #         full_path = os.path.join(cleanup_dir, fname)
-    #         if os.path.isfile(full_path) and fname.count('_') != 2:
-    #             os.remove(full_path)
+    # Clean up any files in DEM and lidar that don't have exactly 2 underscores
+    for cleanup_dir in [dem_path, lidar_path]:
+        for fname in os.listdir(cleanup_dir):
+            full_path = os.path.join(cleanup_dir, fname)
+            if os.path.isfile(full_path) and fname.count('_') != 2:
+                os.remove(full_path)
 
 def makeLists(base_dir: str, site, random_seed=42):
     """

@@ -23,6 +23,7 @@ from PIL import Image
 from matplotlib import pyplot as plt
 import pandas as pd
 import rasterio
+import re
 
 
 _MIN = 0
@@ -31,7 +32,6 @@ _MAX = 1111111111111115000
 # ────────────────────────────────────────────────────────────────────
 # AlphaEarth embedding constants
 # ────────────────────────────────────────────────────────────────────
-AE_BANDS = 64
 AE_SHIFT = 1.0    # map embeddings [-1,1] -> [0,1]
 AE_SCALE = 0.5    # x_out = (x + AE_SHIFT) * AE_SCALE
 
@@ -41,8 +41,13 @@ FEATURE_CHANNELS = {
     'solar': 1, 
     'sensor': 1,
     'dem': 1,
-    'ae': AE_BANDS,
-    'chm': 1
+    'chm': 1,
+    'ae': 64,
+    'ae_4': 4,      # pca ae bands
+    'ae_8': 8,
+    'ae_16': 16,
+    'ae_32': 32,
+    'ae_64': 64
 }
 
 def num_input_channels(x_array):
@@ -667,28 +672,20 @@ def load_samples(feat, sample_name, data_path, NORM_CONST): #, phasename): #, ne
         sample = sample[:,:,0] / NORM_CONST
         sample[sample<0] = 0
         # print('chm shape is '+str(sample.shape))
+    # AlphaEarth embeddings: 64-band GeoTIFF, int8 quantized
+    # Must use rasterio (plt.imread fails on >4 bands)
     elif feat == 'ae':
-        # AlphaEarth embeddings: 64-band GeoTIFF, int8 quantized
-        # Must use rasterio (plt.imread fails on >4 bands)
         with rasterio.open(os.path.join(data_path, 'ae', sample_name)) as src:
             sample = src.read().astype(np.float32)  # (64, H, W) — NO /255
+        sample = transform_ae_sample(sample)
+    # get our pca-specific data_paths
+    elif match := re.match(r"^ae_(\d+)$", feat):
+        dim = match.group(1)
+        pca_data_path = os.path.join(data_path, 'ae', f'{dim}d', sample_name)
+        with rasterio.open(pca_data_path) as src:
+            sample = src.read().astype(np.float32)  # (dim, H, W) — NO /255
+        sample = transform_ae_sample(sample)
         
-        # Two-stage preprocessing transform per Google's documentation:
-        # Stage 1: De-quantize int8 → [-1, 1] range
-        # Formula: ((values / 127.5) ** 2) * sign(values)
-        # This handles the quantization applied by Google when storing embeddings
-        de_quantized = ((sample / 127.5) ** 2) * np.sign(sample)
-        
-        # Stage 2: Shift [-1, 1] → [0, 1] to match other features
-        # NoData value -1 (from original -128) maps to 0, matching our convention
-        sample = (de_quantized + AE_SHIFT) * AE_SCALE
-        
-        # Log NaN statistics before replacement (for debugging/validation)
-        nan_count = np.sum(~np.isfinite(sample))
-        if nan_count > 0:
-            nan_fraction = nan_count / sample.size
-            if nan_fraction > 0.01:  # Log if >1% NaN
-                print(f'Warning: AE sample {sample_name} has {nan_fraction:.2%} NaN values')
     else:
         print(f'feat: {feat}')
         raise NameError('Wrong feature name or not implemented')
@@ -696,7 +693,25 @@ def load_samples(feat, sample_name, data_path, NORM_CONST): #, phasename): #, ne
 
     sample[~np.isfinite(sample)]=0  
     return sample
-        
+
+def transform_ae_sample(sample) :
+    # Two-stage preprocessing transform per Google's documentation:
+    # Stage 1: De-quantize int8 → [-1, 1] range
+    # Formula: ((values / 127.5) ** 2) * sign(values)
+    # This handles the quantization applied by Google when storing embeddings
+    de_quantized = ((sample / 127.5) ** 2) * np.sign(sample)
+    
+    # Stage 2: Shift [-1, 1] → [0, 1] to match other features
+    # NoData value -1 (from original -128) maps to 0, matching our convention
+    sample = (de_quantized + AE_SHIFT) * AE_SCALE
+    
+    # Log NaN statistics before replacement (for debugging/validation)
+    nan_count = np.sum(~np.isfinite(sample))
+    if nan_count > 0:
+        nan_fraction = nan_count / sample.size
+        if nan_fraction > 0.01:  # Log if >1% NaN
+            print(f'Warning: AE sample {sample_name} has {nan_fraction:.2%} NaN values')
+    return sample
 
 def sum_stats(x, remove_zeros=False):
     

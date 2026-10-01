@@ -17,6 +17,8 @@ load_dotenv(find_dotenv())
 
 code_version = 0.00123
 project_directory = os.getenv("project_directory")
+# Target dimensions for PCA reduction
+TARGET_DIMENSIONS = [4, 8, 16, 32, 64]
 
 
 def parse_args(argv=None):
@@ -64,6 +66,7 @@ def parse_args(argv=None):
 
     # ALPHA EARTH
     parser.add_argument("--use-ae", action="store_true")
+    parser.add_argument('--pca-dims', type=int, choices=TARGET_DIMENSIONS, default=None)
 
     # EVALUATION PARAMETERS
     parser.add_argument("--eval-only", action="store_true")         # defaults to False. True when passed

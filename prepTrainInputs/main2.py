@@ -22,14 +22,24 @@ finally:
     sys.path.pop(0)
 
 
+# Target dimensions for PCA reduction
+TARGET_DIMENSIONS = [4, 8, 16, 32, 64]
+
 def main() :
     
-
     # Parse command line arguments FIRST
     parser = argparse.ArgumentParser(description='Prepare training data (step 2) for a specific site')
     parser.add_argument('--site', type=str, required=False,
                     help='Site code (e.g., ws, lm, qm). Overrides .env file if provided.')
     parser.add_argument('--use-ae', action="store_true")
+    # parser.add_argument(
+    #     '--dims',
+    #     type=int,
+    #     nargs='+',
+    #     choices=TARGET_DIMENSIONS,
+    #     default=TARGET_DIMENSIONS,
+    #     help=f'Target dimensions (default: {TARGET_DIMENSIONS})'
+    # )
     args = parser.parse_args()
 
     # Load env variables
@@ -116,23 +126,37 @@ def main() :
         utils.tileRaster(pathToRaster=os.path.join(wvimgMergedPath, tif), outputPath=os.path.join(site_data_path, 'wvimg'), dataType = 'wvimg', anchors_csv=trainAnchorsPath)
     print(f'Saved wvimg tiles to: {site_data_path}/wvimg/')
 
-    
+    print('Tiling AlphaEarth embeddings')
     # conditional if AE is being used
-    if getattr(args, 'use_ae', True):
-        # tile out AlpahEarth
-        tileAlphaEarth(
-            pathToRaster=str(source_raster),
-            outputPath=str(ae_tiles_path),
-            anchors_csv=trainAnchorsPath,
-            epsg=epsg
-        )
-        # Expected output: "✓ Generated N AE tiles with 64 int8 bands each"
-        # Validate tiles
-        tiles = glob.glob(os.path.join(ae_tiles_path, "*.tif"))
-        print(f"Generated {len(tiles)} tiles")
-        with rasterio.open(tiles[0]) as src:
-            print(f"Tile: {src.count} bands, {src.dtypes[0]}, {src.width}x{src.height}, {src.res}")
-            # Expected: Tile: 64 bands, int8, 512x512, (0.5, 0.5)
+    if getattr(args, 'use_ae', True):            
+        # iterate through each listed dimension specified in TARGET_DIMENSIONS
+        #for n_components in args.dims :
+        for n_components in TARGET_DIMENSIONS :
+            dim_ae_tiles_path = os.path.join(ae_tiles_path, f'{n_components}d')
+            dim_source_raster = os.path.join(dim_ae_tiles_path, f'ae_source_{n_components}d.tif')
+
+            # check if folder for current n_component exists
+            if not os.path.isfile(dim_source_raster):
+                raise FileNotFoundError(f"The source raster at: '{dim_source_raster}' does not exist.")
+
+            print(f"Tiling {n_components}-dimensional AlphaEarth embeddings...")
+
+            dim_bands = n_components
+            # tile out AlpahEarth
+            tileAlphaEarth(
+                pathToRaster=str(dim_source_raster),
+                outputPath=str(dim_ae_tiles_path),
+                anchors_csv=trainAnchorsPath,
+                epsg=epsg,
+                expected_bands=dim_bands
+            )
+            # Validate tiles
+            tiles = glob.glob(os.path.join(dim_ae_tiles_path, "*.tif"))
+            print(f"Generated {len(tiles)} tiles")
+            with rasterio.open(tiles[0]) as src:
+                print(f"Tile: {src.count} bands, {src.dtypes[0]}, {src.width}x{src.height}, {src.res}")
+
+    print("Done tiling AlphaEarth embeddings")
 
     # rename tiles to preserve associations between input tiles and sat/solar angle tiles
     print('Renaming tiles')
