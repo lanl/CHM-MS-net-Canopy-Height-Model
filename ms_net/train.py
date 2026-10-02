@@ -106,240 +106,240 @@ def setup_net_dict(params):
     net_dict['D_stats'] = {'scalar': 0}
     return net_dict
 
+def find_latest_checkpoint(site):
+    """
+    Find the most recent best-val checkpoint for the given site.
+    
+    Parameters
+    ----------
+    site : str
+        Site name (e.g., 'fs_train_ae')
+    
+    Returns
+    -------
+    str
+        Path to latest best-val checkpoint
+    
+    Raises
+    ------
+    RuntimeError
+        If no checkpoint found
+    """
+    model_dir = os.path.join('lightning_logs', f'{site}_model')
+    
+    if not os.path.isdir(model_dir):
+        raise RuntimeError(
+            f"No model directory found: {model_dir}\n"
+            f"Train a model first before using --eval-only"
+        )
+    
+    # Find all version directories (version_0, version_1, etc.)
+    versions = [
+        name for name in os.listdir(model_dir)
+        if os.path.isdir(os.path.join(model_dir, name))
+        and re.fullmatch(r'version_\d+', name)
+    ]
+    
+    if not versions:
+        raise RuntimeError(f"No version directories found in {model_dir}")
+    
+    # Get latest version
+    latest_version = max(versions, key=lambda x: int(x.split('_')[-1]))
+    latest_version_dir = os.path.join(model_dir, latest_version)
+    checkpoints_dir = os.path.join(latest_version_dir, 'checkpoints')
+    
+    if not os.path.isdir(checkpoints_dir):
+        raise RuntimeError(f"No checkpoints directory in {latest_version_dir}")
+    
+    # Find best-val checkpoint
+    ckpt_files = [
+        name for name in os.listdir(checkpoints_dir)
+        if name.startswith('best-val-epoch=') and name.endswith('.ckpt')
+    ]
+    
+    if not ckpt_files:
+        raise RuntimeError(f"No best-val checkpoint found in {checkpoints_dir}")
+    
+    if len(ckpt_files) > 1:
+        print(f"Warning: Multiple best-val checkpoints found, using first: {ckpt_files[0]}")
+    
+    checkpoint_path = os.path.join(checkpoints_dir, ckpt_files[0])
+    print(f"Found latest checkpoint: {checkpoint_path}")
+    
+    return checkpoint_path
+
+
+def load_checkpoint_with_hparams(checkpoint_path):
+    """
+    Load model from checkpoint using its saved hyperparameters.
+    
+    Parameters
+    ----------
+    checkpoint_path : str
+        Path to .ckpt file
+    
+    Returns
+    -------
+    MS_Net
+        Loaded model
+    """
+    # Derive hparams.yaml location (up 2 dirs from checkpoint)
+    version_dir = os.path.dirname(os.path.dirname(checkpoint_path))
+    yaml_path = os.path.join(version_dir, 'hparams.yaml')
+    
+    if not os.path.exists(yaml_path):
+        print(f"Warning: hparams.yaml not found at {yaml_path}")
+        print("This appears to be a legacy checkpoint. Attempting to load with defaults...")
+        
+        # Legacy fallback: try to load with minimal params
+        # PyTorch Lightning may auto-infer from checkpoint
+        model = MS_Net.load_from_checkpoint(checkpoint_path)
+        return model
+    
+    # Load hyperparameters from YAML
+    print(f"Loading hyperparameters from {yaml_path}")
+    hparams = load_hparams(yaml_path)
+    
+    # Extract architecture params
+    net_name = hparams.get('net_name')
+    num_scales = hparams.get('num_scales')
+    num_features = hparams.get('num_features')
+    num_filters = hparams.get('num_filters')
+    f_mult = hparams.get('f_mult')
+    
+    # Load checkpoint with explicit architecture
+    model = MS_Net.load_from_checkpoint(
+        checkpoint_path,
+        net_name=net_name,
+        num_scales=num_scales,
+        num_features=num_features,
+        num_filters=num_filters,
+        f_mult=f_mult
+    )
+    
+    print(f"Model loaded: {num_features} input channels")
+    return model
+
+
+def warn_if_flags_mismatch(checkpoint_path, params):
+    """
+    Warn user if current CLI flags don't match checkpoint architecture.
+    
+    Parameters
+    ----------
+    checkpoint_path : str
+        Path to checkpoint file
+    params : namespace
+        Current command-line parameters
+    """
+    version_dir = os.path.dirname(os.path.dirname(checkpoint_path))
+    yaml_path = os.path.join(version_dir, 'hparams.yaml')
+    
+    if not os.path.exists(yaml_path):
+        # Can't check without hparams - skip warning
+        return
+    
+    hparams = load_hparams(yaml_path)
+    checkpoint_channels = hparams.get('num_features')
+    current_channels = num_input_channels(params.x_array)
+    
+    if checkpoint_channels != current_channels:
+        print(f"Architecture Mismatch Warning")
+        print(f"Checkpoint was trained with: {checkpoint_channels} input channels")
+        print(f"Your current flags specify:  {current_channels} input channels")
+        print(f"\nThe checkpoint's architecture will be used (flags ignored).")
+
+
+def create_new_model(params, net_dict):
+    """
+    Create a brand new MS_Net model for training.
+    
+    Parameters
+    ----------
+    params : namespace
+        Training parameters
+    net_dict : dict
+        Hyperparameter dictionary
+    
+    Returns
+    -------
+    MS_Net
+        Newly instantiated model
+    """
+    model = MS_Net(
+        net_name=params.net_name,
+        num_scales=params.num_scales,
+        num_features=num_input_channels(params.x_array),
+        num_filters=params.num_filters,
+        f_mult=params.f_mult,
+        lr=params.LR,
+        hparams=net_dict,
+        steps=params.steps,
+    )
+    
+    print(f"New MS_Net instantiated")
+    print(f"  - Input channels: {num_input_channels(params.x_array)}")
+    print(f"  - Scales: {params.num_scales}")
+    print(f"  - Filters: {params.num_filters}")
+    
+    return model
+
 def load_or_create_model(params, net_dict):
     """
-    Description
-    ___________
-    This loads and creates the model
-
+    Load existing checkpoint (eval mode) or create new model (train mode).
+    
     Parameters
     __________
     params : namespace
-        this contains specific arguments for the neural network
+        Command line arguments
     net_dict : dict
-        a dictionary of hyperparameters for the neural network
-
+        Dictionary of hyperparameters for the neural network
+    
     Returns
     _______
-    Returns the created model
+    tuple(MS_Net, bool)
+        Model and whether it's newly created (True) or loaded (False)
     """
-    dotenv_path = find_dotenv()
-    load_dotenv(dotenv_path)
-    directory = os.path.abspath(os.path.join(os.getcwd(), '..', '..'))
-    output_directory = os.path.join(directory, "outputs")
-    os.makedirs(output_directory, exist_ok=True)
-
-
-    if params.model_loc :
-        if not params.eval_only :
-            # warning: model_loc must be used with --eval-only
-            raise ValueError("--model-loc can only be specified when also using --eval-only (for now)")
-
-        # load model_loc from params
-        model_loc = params.model_loc
-        if not os.path.isfile(model_loc) :
-            raise ValueError(f"user-provided model_loc does not exist: \'{model_loc}\'")
-
-        print(f"Using user-provided model_loc: {model_loc}")
-
-        # Load hyperparameters
-        yaml_loc = os.path.join(os.path.dirname(os.path.dirname(model_loc)), 'hparams.yaml')
-        print(f'yaml_loc: {yaml_loc}')
-        yaml_dict = load_hparams(yaml_loc)
-
-        # check if yaml_dict is empty
-        if not yaml_dict:
-            # yaml file doesn't exit
-            print("hparams.yaml is empty.")
-            print("Using current params to reconstruct legacy checkpoint.")
-            net_name = params.net_name
-            num_scales = params.num_scales
-            num_filters = params.num_filters
-            f_mult = params.f_mult
-
-            # load model from best-val checkpoint with current params
-            model = MS_Net.load_from_checkpoint(
-                model_loc,
-                net_name=net_name,
-                num_scales=num_scales,
-                num_features=num_input_channels(params.x_array),
-                num_filters=num_filters,
-                f_mult=f_mult
-            )
-            return model, False
-            
-        else:
-            # yaml file exists
-            print("Loading architecture parameters from hparams.yaml")
-            net_name = yaml_dict['net_name']
-            num_scales = yaml_dict['num_scales']
-            num_filters = yaml_dict['num_filters']
-            f_mult = yaml_dict['f_mult']
-
-            checkpoint_channels = yaml_dict['num_features']
-            current_channels = num_input_channels
-            if checkpoint_channels == current_channels :
-                # matching model architectures
-                # load model from best-val checkpoint
-                model = MS_Net.load_from_checkpoint(
-                    model_loc,
-                    net_name=net_name,
-                    num_scales=num_scales,
-                    num_features=num_input_channels(params.x_array),
-                    num_filters=num_filters,
-                    f_mult=f_mult
-                )
-                return model, False
-            
-            else :
-                # model architectures do not match
-                print(f"\n{'='*70}")
-                print(f"Architecture mismatch detected")
-                print(f"Checkpoint was trained with: num_features = {checkpoint_channels}")
-                print(f"You are requesting:          num_features = {current_channels}")
-                print(f"{'='*70}\n")
-
-        print(f"Using model from model_loc: {model_loc}")
-        model = MS_Net.load_from_checkpoint(
-            model_loc,
-            net_name=net_name,
-            num_scales=num_scales,
-            num_features=num_input_channels(params.x_array),
-            num_filters=num_filters,
-            f_mult=f_mult
-        )
-        return model, False
+    
+    if params.eval_only:
+        # ============ EVALUATION MODE ============
+        # Load existing checkpoint, ignore current architecture flags
         
-    else :
-
-        if params.eval_only :
-            # not training new
-
-            print("locating model checkpoint...")
-            model_dir = os.path.join('lightning_logs', f'{params.site}_model')
-            print(f'model_dir: {model_dir}')
-            
-            # Check whether a model directory exists
-            if os.path.isdir(model_dir):
-                # model directory exists
-                
-                versions = [
-                    name for name in os.listdir(model_dir)
-                    if os.path.isdir(os.path.join(model_dir, name))
-                    and re.fullmatch(r'version_\d+', name)
-                ]
-                if versions:
-                    # model versions exist
-
-                    latest_version = max(versions, key=lambda x: int(x.split('_')[-1]))
-                    latest_version_dir = os.path.join(model_dir, latest_version)
-                    print(f'Latest model version: {latest_version_dir}')
-                    latest_model_dir = os.path.join(latest_version_dir, 'checkpoints')
-                    if os.path.isdir(latest_model_dir):
-                        # latest model version checkpoints exist
-                        
-                        ckpt_files = [
-                            name for name in os.listdir(latest_model_dir)
-                            if os.path.isfile(os.path.join(latest_model_dir, name))
-                            and name.startswith('best-val-epoch=')
-                        ]
-                        if len(ckpt_files) > 1:
-                            # error if more than one best-val checkpoint (maybe just load the one at [0] instead?)
-                            raise RuntimeError(
-                                f"Expected exactly one best-val checkpoint, but found {len(ckpt_files)}: {ckpt_files}"
-                            )
-
-                        if len(ckpt_files) != 0:
-                            # there exists just one best-val model checkpoint
-                            model_loc = os.path.join(latest_model_dir, ckpt_files[0])
-                            print(f'found model best-val checkpoint at model_loc: {model_loc}')
-
-                            # Load hyperparameters
-                            yaml_loc = os.path.join(latest_version_dir, 'hparams.yaml')
-                            print(f'yaml_loc: {yaml_loc}')
-                            yaml_dict = load_hparams(yaml_loc)
-
-                            # check if yaml_dict is empty
-                            if not yaml_dict:
-                                # yaml file doesn't exit
-                                print("hparams.yaml is empty.")
-                                print("Using current params to reconstruct legacy checkpoint.")
-                                net_name = params.net_name
-                                num_scales = params.num_scales
-                                num_filters = params.num_filters
-                                f_mult = params.f_mult
-
-                                # load model from best-val checkpoint with current params
-                                model = MS_Net.load_from_checkpoint(
-                                    model_loc,
-                                    net_name=net_name,
-                                    num_scales=num_scales,
-                                    num_features=num_input_channels(params.x_array),
-                                    num_filters=num_filters,
-                                    f_mult=f_mult
-                                )
-                                return model, False
-                                
-                            else:
-                                # yaml file exists
-                                print("Loading architecture parameters from hparams.yaml")
-                                net_name = yaml_dict['net_name']
-                                num_scales = yaml_dict['num_scales']
-                                num_filters = yaml_dict['num_filters']
-                                f_mult = yaml_dict['f_mult']
-
-                                checkpoint_channels = yaml_dict['num_features']
-                                current_channels = num_input_channels
-                                if checkpoint_channels == current_channels :
-                                    # matching model architectures
-                                    # load model from best-val checkpoint
-                                    model = MS_Net.load_from_checkpoint(
-                                        model_loc,
-                                        net_name=net_name,
-                                        num_scales=num_scales,
-                                        num_features=num_input_channels(params.x_array),
-                                        num_filters=num_filters,
-                                        f_mult=f_mult
-                                    )
-                                    return model, False
-                                
-                                else :
-                                    # model architectures do not match
-                                    print(f"\n{'='*70}")
-                                    print(f"Architecture mismatch detected")
-                                    print(f"Checkpoint was trained with: num_features = {checkpoint_channels}")
-                                    print(f"You are requesting:          num_features = {current_channels}")
-                                    print(f"{'='*70}\n")
-
-                        else :
-                            # no best-val checkpoint
-                            print(f"no model best-val checkpoint")
-                    else :
-                        # latest model version checkpoints don't exist
-                        print(f"latest model version checkpoints don't exist")
-                else :
-                    # model versions dont exist
-                    print(f"no model versions exist")
-            else :
-                # model directory doesn't exist
-                print(f"model directory doesn't exist: {model_dir}")
-            
-        else :
-            # training new model
-            print("")
-
-        # create model once here. return model, true
-        print('Instantiating a new MS-NET()')
-        model = MS_Net(
-            net_name=params.net_name,
-            num_scales=params.num_scales,
-            num_features=num_input_channels(params.x_array),
-            num_filters=params.num_filters,
-            f_mult=params.f_mult,
-            lr=params.LR,
-            hparams=net_dict,
-            steps=params.steps,
-        )
+        if params.model_loc:
+            checkpoint_path = params.model_loc
+            if not os.path.isfile(checkpoint_path):
+                raise ValueError(f"Checkpoint not found: {checkpoint_path}")
+        else:
+            checkpoint_path = find_latest_checkpoint(params.site)
+        
+        print(f"\n{'='*70}")
+        print(f"EVALUATION MODE: Loading checkpoint")
+        print(f"Checkpoint: {checkpoint_path}")
+        print(f"{'='*70}\n")
+        
+        # Warn if user-provided flags don't match checkpoint
+        warn_if_flags_mismatch(checkpoint_path, params)
+        
+        # Load model from checkpoint (uses checkpoint's own architecture)
+        model = load_checkpoint_with_hparams(checkpoint_path)
+        return model, False
+    
+    else:
+        # ============ TRAINING MODE ============
+        # Create new model using current flags
+        
+        if params.model_loc:
+            raise ValueError(
+                "--model-loc can only be used with --eval-only\n"
+                "To train a new model, remove --model-loc flag"
+            )
+        
+        print(f"\n{'='*70}")
+        print(f"TRAINING MODE: Creating new model")
+        print(f"Architecture: {num_input_channels(params.x_array)} input channels")
+        print(f"{'='*70}\n")
+        
+        model = create_new_model(params, net_dict)
         return model, True
 
 
@@ -398,7 +398,7 @@ def setup_trainer(params, site, net_dict=None, new_model=False):
     if new_model and net_dict is not None :
         logger.log_hyperparams(net_dict)
 
-    print(f"✓ Models will be saved to: lightning_logs/{site}_model/")
+    print(f"Models will be saved to: lightning_logs/{site}_model/")
 
     return Trainer(
         max_epochs=params.max_epochs,
