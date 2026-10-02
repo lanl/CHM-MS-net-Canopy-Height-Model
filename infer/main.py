@@ -23,9 +23,16 @@ try:
     from site_config import load_site_config
     import prepTrainInputs.utils as utils
     from ms_net.infer import run_inference
+    from prepTrainInputs.pca import reduce_ae_dimensions
 finally:
     sys.path.pop(0)
 
+
+# Target dimensions for PCA reduction
+TARGET_DIMENSIONS = [4, 8, 16, 32, 64]
+# Sampling parameters
+DEFAULT_SAMPLE_SIZE = 100000  # 100k pixels for stable covariance estimation
+DEFAULT_CHUNK_SIZE = 1000
 
 def main() :
     
@@ -43,6 +50,9 @@ def main() :
                     help='Feathering constant for tile merging (default: 40)')
     parser.add_argument('--use-ae', action="store_true",
                     help='Enable AlphaEarth 64-band embeddings for inference')
+    parser.add_argument('--seed', type=int, default=42,
+                    help='Random seed for reproducibility (default: 42)')
+    parser.add_argument('--pca-dims', type=int, choices=TARGET_DIMENSIONS, default=None)
 
     args = parser.parse_args()
 
@@ -141,7 +151,7 @@ def main() :
         )
         
         ckpt_dir = Path(weightsVersion) / "checkpoints"
-        epoch_re = re.compile(r"epoch=(\d+)\.ckpt$")
+        epoch_re = re.compile(r"best-val-epoch=(\d+)\.ckpt$")       # searching for best-val
         matches = []
         for p in ckpt_dir.glob("*.ckpt"):
             m = epoch_re.search(p.name)
@@ -150,7 +160,7 @@ def main() :
         if not matches:
             raise FileNotFoundError(f"No weights files found in {ckpt_dir}")
         
-        # Get the checkpoint with highest epoch number
+        # Get the checkpoint with the best-val-epoch
         checkpoint_epoch, pathToWeights = max(matches, key=lambda t: t[0])
         print(f"✓ Automatically selected weights for site '{site}': {pathToWeights}")
         
@@ -293,26 +303,69 @@ def main() :
             # Validate source
             import rasterio
             with rasterio.open(result) as src:
-                print(f"Source: {src.count} bands, {src.dtypes[0]}, {src.width}x{src.height}, {src.res}")
+                print(f"Source: {src.count} bands, {src.dtypes[0]}, {src.width}*{src.height}, {src.res}")
                 # Expected: Source: 64 bands, int8, WxH, (10.0, 10.0)
             
-            # Tile AlphaEarth data
-            print('Tiling AlphaEarth data for model partition')
-            utils.tileAlphaEarth(
-                pathToRaster=str(source_raster),
-                outputPath=str(ae_tiles_path),
-                anchors_csv=infAnchorsPath,
-                epsg=epsg
-            )
-            print(f'Saved AlphaEarth tiles to {ae_tiles_path}')
-            # Validate tiles
-            import glob
-            tiles = glob.glob(os.path.join(ae_tiles_path, "*.tif"))
-            print(f"Generated {len(tiles)} AlphaEarth tiles")
-            if tiles:
-                with rasterio.open(tiles[0]) as src:
-                    print(f"Tile: {src.count} bands, {src.dtypes[0]}, {src.width}x{src.height}, {src.res}")
-                    # Expected: Tile: 64 bands, int8, 512x512, (0.5, 0.5)
+            # check if we are using PCA
+            if getattr(args, 'pca_dims', None) is not None :
+                print(f"Inferring with pca_dims AE channels: {args.pca_dims}")
+            
+                output_dir = Path(source_raster).parent
+                
+                # call PCA for all default dimensions
+                results = reduce_ae_dimensions(
+                    ae_source_path=str(source_raster),
+                    output_dir=str(output_dir),
+                    site_name=site,
+                    target_dims=args.pca_dims,
+                    sample_size=DEFAULT_SAMPLE_SIZE,
+                    chunk_size=DEFAULT_CHUNK_SIZE,
+                    validate=False,
+                    seed=args.seed
+                )
+
+                dim_ae_tiles_path = os.path.join(ae_tiles_path, f'{args.pca_dims}d')
+                dim_source_raster = os.path.join(dim_ae_tiles_path, f'ae_source_{args.pca_dims}d.tif')
+                # Tile AlphaEarth data
+                print('Tiling AlphaEarth data for model partition')
+                utils.tileAlphaEarth(
+                    pathToRaster=str(dim_source_raster),
+                    outputPath=str(dim_ae_tiles_path),
+                    anchors_csv=infAnchorsPath,
+                    epsg=epsg,
+                    expected_bands=args.pca_dims
+                )
+
+                print(f'Saved AlphaEarth tiles to {dim_ae_tiles_path}')
+                # Validate tiles
+                import glob
+                tiles = glob.glob(os.path.join(dim_ae_tiles_path, "*.tif"))
+                print(f"Generated {len(tiles)} AlphaEarth tiles")
+                if tiles:
+                    with rasterio.open(tiles[0]) as src:
+                        print(f"Tile: {src.count} bands, {src.dtypes[0]}, {src.width}*{src.height}, {src.res}")
+                        # Expected: Tile: 64 bands, int8, 512x512, (0.5, 0.5)
+
+            else :
+                print("Inferring with default 64 AE channels")
+                # Tile AlphaEarth data
+                print('Tiling AlphaEarth data for model partition')
+                utils.tileAlphaEarth(
+                    pathToRaster=str(source_raster),
+                    outputPath=str(ae_tiles_path),
+                    anchors_csv=infAnchorsPath,
+                    epsg=epsg,
+                )
+
+                print(f'Saved AlphaEarth tiles to {ae_tiles_path}')
+                # Validate tiles
+                import glob
+                tiles = glob.glob(os.path.join(ae_tiles_path, "*.tif"))
+                print(f"Generated {len(tiles)} AlphaEarth tiles")
+                if tiles:
+                    with rasterio.open(tiles[0]) as src:
+                        print(f"Tile: {src.count} bands, {src.dtypes[0]}, {src.width}*{src.height}, {src.res}")
+                        # Expected: Tile: 64 bands, int8, 512x512, (0.5, 0.5)
         
         except Exception as e:
             print(f'Error processing AlphaEarth data: {e}')

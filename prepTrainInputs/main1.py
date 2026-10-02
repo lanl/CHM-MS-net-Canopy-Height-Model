@@ -258,7 +258,7 @@ def main():
     print(f'Saved normalized DEM tiles to {DEM_tiles_path}')
 
 
-    alignmentYear = 2018.0
+    #alignmentYear = 2018.0     # FIXME: remove this
 
     # conditional if AE is being used
     if getattr(args, 'use_ae', True):
@@ -279,7 +279,7 @@ def main():
         # Validate source
         with rasterio.open(result) as src:
             print(f"Source: {src.count} bands, {src.dtypes[0]}, {src.width}x{src.height}, {src.res}")
-                # Expected: Source: 64 bands, int8, WxH, (10.0, 10.0)
+            # Expected: Source: 64 bands, int8, WxH, (10.0, 10.0)
 
 
     print('==========================================================')

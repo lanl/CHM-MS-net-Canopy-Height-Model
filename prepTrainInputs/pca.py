@@ -62,9 +62,9 @@ AE_BAND_NAMES = [f"A{i:02d}" for i in range(AE_BANDS)]
 
 # Target dimensions for PCA reduction
 TARGET_DIMENSIONS = [4, 8, 16, 32, 64]
-
 # Sampling parameters
 DEFAULT_SAMPLE_SIZE = 100000  # 100k pixels for stable covariance estimation
+DEFAULT_CHUNK_SIZE = 1000
 
 # ────────────────────────────────────────────────────────────────────
 # Logging
@@ -182,7 +182,7 @@ def sample_pixels_from_raster(
         # Determine actual sample size
         actual_sample_size = min(sample_size, total_pixels)
         
-        logger.info(
+        print(
             f"Sampling {actual_sample_size:,} pixels from {width}*{height} raster "
             f"({total_pixels:,} total pixels)"
         )
@@ -204,7 +204,7 @@ def sample_pixels_from_raster(
         # Transpose to (n_samples, 64) for sklearn
         samples = sampled_float32.T
         
-        logger.info(
+        print(
             f"Sampled data shape: {samples.shape}, "
             f"range: [{samples.min():.3f}, {samples.max():.3f}]"
         )
@@ -230,14 +230,14 @@ def fit_pca(
     Returns:
         Fitted sklearn PCA object
     """
-    logger.info(f"Fitting PCA with {n_components} components...")
+    print(f"Fitting PCA with {n_components} components...")
     
     pca = PCA(n_components=n_components)
     pca.fit(samples)
     
     # Report variance explained
     cumulative_variance = np.cumsum(pca.explained_variance_ratio_)
-    logger.info(
+    print(
         f"PCA-{n_components}: "
         f"Explained variance = {cumulative_variance[-1]:.2%} "
         f"({n_components}/{AE_BANDS} components)"
@@ -287,8 +287,8 @@ def save_pca_model(
     with open(metadata_path, 'w') as f:
         json.dump(full_metadata, f, indent=2)
     
-    logger.info(f"Saved PCA model: {model_path}")
-    logger.info(f"Saved metadata: {metadata_path}")
+    print(f"Saved PCA model: {model_path}")
+    print(f"Saved metadata: {metadata_path}")
     
     return model_path, metadata_path
 
@@ -322,7 +322,7 @@ def load_pca_model(model_path: str) -> Tuple[PCA, Dict]:
     with open(metadata_path, 'r') as f:
         metadata = json.load(f)
     
-    logger.info(
+    print(
         f"Loaded PCA-{pca.n_components_}: "
         f"{metadata['cumulative_variance'][-1]:.2%} variance explained"
     )
@@ -364,9 +364,9 @@ def transform_ae_raster(
     """
     n_components = pca.n_components_
     
-    logger.info(f"Transforming raster: {input_raster}")
-    logger.info(f"PCA: 64 → {n_components} dimensions")
-    logger.info(f"Output: {output_raster}")
+    print(f"Transforming raster: {input_raster}")
+    print(f"PCA: 64 → {n_components} dimensions")
+    print(f"Output: {output_raster}")
     
     with rasterio.open(input_raster) as src:
         # Validate input
@@ -388,7 +388,7 @@ def transform_ae_raster(
         height, width = src.height, src.width
         total_windows = int(np.ceil(height / chunk_size) * np.ceil(width / chunk_size))
         
-        logger.info(
+        print(
             f"Processing {width}*{height} raster in {total_windows} chunks "
             f"({chunk_size}*{chunk_size} pixels each)"
         )
@@ -431,9 +431,9 @@ def transform_ae_raster(
                     processed_windows += 1
                     if processed_windows % 10 == 0:
                         progress = (processed_windows / total_windows) * 100
-                        logger.info(f"Progress: {progress:.1f}% ({processed_windows}/{total_windows} windows)")
+                        print(f"Progress: {progress:.1f}% ({processed_windows}/{total_windows} windows)")
             
-            logger.info(f"✓ Transformation complete: {output_raster}")
+            print(f"✓ Transformation complete: {output_raster}")
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -470,7 +470,7 @@ def validate_pca_reconstruction(
     """
     np.random.seed(seed)
     
-    logger.info(f"Validating PCA reconstruction on {n_test_pixels} random pixels...")
+    print(f"Validating PCA reconstruction on {n_test_pixels} random pixels...")
     
     with rasterio.open(original_raster) as src_orig, \
          rasterio.open(reduced_raster) as src_reduced:
@@ -514,10 +514,10 @@ def validate_pca_reconstruction(
             'test_pixels': n_test_pixels,
         }
         
-        logger.info(f"Reconstruction RMSE: {rmse:.4f}")
-        logger.info(f"Reconstruction MAE: {mae:.4f}")
-        logger.info(f"Max error: {max_error:.4f}")
-        logger.info(f"Explained variance: {metrics['explained_variance']:.2%}")
+        print(f"Reconstruction RMSE: {rmse:.4f}")
+        print(f"Reconstruction MAE: {mae:.4f}")
+        print(f"Max error: {max_error:.4f}")
+        print(f"Explained variance: {metrics['explained_variance']:.2%}")
         
         return metrics
 
@@ -581,34 +581,34 @@ def reduce_ae_dimensions(
     model_dir = output_dir / 'pca_models'
     model_dir.mkdir(parents=True, exist_ok=True)
     
-    logger.info("="*80)
-    logger.info(f"PCA Dimensionality Reduction Pipeline")
-    logger.info("="*80)
-    logger.info(f"Site: {site_name}")
-    logger.info(f"Input: {ae_source_path}")
-    logger.info(f"Output directory: {output_dir}")
-    logger.info(f"Target dimensions: {target_dims}")
-    logger.info(f"Sample size: {sample_size:,} pixels")
-    logger.info("="*80)
+    print("="*80)
+    print(f"PCA Dimensionality Reduction Pipeline")
+    print("="*80)
+    print(f"Site: {site_name}")
+    print(f"Input: {ae_source_path}")
+    print(f"Output directory: {output_dir}")
+    print(f"Target dimensions: {target_dims}")
+    print(f"Sample size: {sample_size:,} pixels")
+    print("="*80)
     
     # Step 1: Sample pixels for PCA fitting
-    logger.info("\n[1/4] Sampling pixels for PCA fitting...")
+    print("\n[1/4] Sampling pixels for PCA fitting...")
     samples = sample_pixels_from_raster(ae_source_path, sample_size=sample_size, seed=seed)
     
     results = {}
     
     # Step 2-3: Fit and transform for each target dimension
     for n_components in target_dims:
-        logger.info("\n" + "="*80)
-        logger.info(f"Processing {n_components}-dimensional reduction...")
-        logger.info("="*80)
+        print("\n" + "="*80)
+        print(f"Processing {n_components}-dimensional reduction...")
+        print("="*80)
         
         # Fit PCA
-        logger.info(f"\n[2/4] Fitting PCA with {n_components} components...")
+        print(f"\n[2/4] Fitting PCA with {n_components} components...")
         pca = fit_pca(samples, n_components=n_components)
         
         # Save model
-        logger.info(f"\n[3/4] Saving PCA model...")
+        print(f"\n[3/4] Saving PCA model...")
         metadata = {
             'site': site_name,
             'source_raster': ae_source_path,
@@ -622,7 +622,7 @@ def reduce_ae_dimensions(
         )
         
         # Transform raster
-        logger.info(f"\n[4/4] Transforming raster...")
+        print(f"\n[4/4] Transforming raster...")
         dim_dir = output_dir / f'{n_components}d'
         dim_dir.mkdir(parents=True, exist_ok=True)
         output_raster = dim_dir / f'ae_source_{n_components}d.tif'
@@ -645,7 +645,7 @@ def reduce_ae_dimensions(
         
         # Validate if requested
         if validate:
-            logger.info(f"\n[Validation] Testing reconstruction quality...")
+            print(f"\n[Validation] Testing reconstruction quality...")
             validation_metrics = validate_pca_reconstruction(
                 original_raster=ae_source_path,
                 reduced_raster=str(output_raster),
@@ -656,20 +656,20 @@ def reduce_ae_dimensions(
             result['validation_metrics'] = validation_metrics
         
         results[n_components] = result
-        logger.info(f"\n✓ Completed {n_components}d reduction")
+        print(f"\nCompleted {n_components}d reduction")
     
     # Final summary
-    logger.info("\n" + "="*80)
-    logger.info("PCA Pipeline Complete!")
-    logger.info("="*80)
-    logger.info(f"\nGenerated files:")
+    print("\n" + "="*80)
+    print("PCA Pipeline Complete!")
+    print("="*80)
+    print(f"\nGenerated files:")
     for n_comp, res in results.items():
-        logger.info(f"  {n_comp}d: {res['output_raster']}")
-        logger.info(f"       Variance: {res['explained_variance']:.2%}")
+        print(f"  {n_comp}d: {res['output_raster']}")
+        print(f"       Variance: {res['explained_variance']:.2%}")
         if 'validation_metrics' in res:
-            logger.info(f"       RMSE: {res['validation_metrics']['rmse']:.4f}")
-    logger.info(f"\nPCA models saved in: {model_dir}")
-    logger.info("="*80)
+            print(f"       RMSE: {res['validation_metrics']['rmse']:.4f}")
+    print(f"\nPCA models saved in: {model_dir}")
+    print("="*80)
     
     return results
 
@@ -691,7 +691,7 @@ Examples:
   python pca.py --input fs_train_ae_data/ae/ae_source.tif --site fs_train
   
   # Custom dimensions and sample size
-  python pca.py --input fs_train_ae_data/ae/ae_source.tif --site fs_train --dims 8 16 --sample-size 50000
+  python pca.py --input fs_train_ae_data/ae/ae_source.tif --site fs_train --pca-dims 8 16 --sample-size 50000
   
   # Skip validation for faster processing
   python pca.py --input fs_train_ae_data/ae/ae_source.tif --site fs_train --no-validate
@@ -712,31 +712,6 @@ Examples:
         '--output-dir',
         default=None,
         help='Output directory (default: parent directory of input)'
-    )
-    # parser.add_argument(
-    #     '--dims',
-    #     type=int,
-    #     nargs='+',
-    #     choices=TARGET_DIMENSIONS,
-    #     default=TARGET_DIMENSIONS,
-    #     help=f'Target dimensions (default: {TARGET_DIMENSIONS})'
-    # )
-    parser.add_argument(
-        '--sample-size',
-        type=int,
-        default=DEFAULT_SAMPLE_SIZE,
-        help=f'Number of pixels for PCA fitting (default: {DEFAULT_SAMPLE_SIZE:,})'
-    )
-    parser.add_argument(
-        '--chunk-size',
-        type=int,
-        default=1000,
-        help='Window size for raster processing (default: 1000)'
-    )
-    parser.add_argument(
-        '--no-validate',
-        action='store_true',
-        help='Skip validation step'
     )
     parser.add_argument(
         '--seed',
@@ -796,17 +771,17 @@ Examples:
             output_dir=str(output_dir),
             site_name=args.site,
             target_dims=TARGET_DIMENSIONS,
-            sample_size=args.sample_size,
-            chunk_size=args.chunk_size,
-            validate=not args.no_validate,
+            sample_size=DEFAULT_SAMPLE_SIZE,
+            chunk_size=DEFAULT_CHUNK_SIZE,
+            validate=True,
             seed=args.seed
         )
         
-        print("\n✓ PCA pipeline completed successfully!")
+        print("\nPCA pipeline completed successfully!")
         return 0
         
     except Exception as e:
-        logger.error(f"Pipeline failed: {e}", exc_info=True)
+        print(f"Pipeline failed: {e}", exc_info=True)
         return 1
 
 
