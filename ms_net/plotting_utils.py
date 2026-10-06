@@ -9,6 +9,7 @@ import matplotlib
 import h5py
 from hdf5storage import loadmat
 import matplotlib.pyplot as plt
+import io
 
 
 params = {
@@ -319,26 +320,48 @@ def evaluate_validation_model(
         "r2": r2,
     }
 
-    print("\n" + "=" * 60)
-    print("VALIDATION MODEL STATISTICS")
-    print("=" * 60)
+    buffer = io.StringIO()
+    buffer.write("\n" + "=" * 60 + "\n")
+    buffer.write("VALIDATION MODEL STATISTICS")
+    buffer.write("\n" + "=" * 60 + "\n")
+    buffer.write(f"Pixels evaluated:       {len(observed):,}\n")
+    buffer.write(f"MSE:                    {mse:.4f} m²\n")
+    buffer.write(f"RMSE:                   {rmse:.4f} m\n")
+    buffer.write(f"MAE:                    {mae:.4f} m\n")
+    buffer.write(f"Mean signed error:      {mean_signed_error:.4f} m\n")
+    buffer.write(f"Std. signed error:      {std_signed_error:.4f} m\n")
+    buffer.write(f"R²:                     {r2:.4f}\n")
+    buffer.write("\nObserved:\n")
+    buffer.write(f"  Mean:                 {observed_mean:.4f} m\n")
+    buffer.write(f"  Std:                  {observed_std:.4f} m\n")
+    buffer.write("\nPredicted:\n")
+    buffer.write(f"  Mean:                 {predicted_mean:.4f} m\n")
+    buffer.write(f"  Std:                  {predicted_std:.4f} m\n")
+    buffer.write("=" * 60 + "\n")
+    
+    print(buffer.getvalue())
+    
+    with open("model_metrics.txt", "w", encoding="utf-8") as file :
+        file.write(buffer.getvalue())
 
-    print(f"Pixels evaluated:       {len(observed):,}")
-    print(f"MSE:                    {mse:.4f} m²")
-    print(f"RMSE:                   {rmse:.4f} m")
-    print(f"MAE:                    {mae:.4f} m")
-    print(f"Mean signed error:      {mean_signed_error:.4f} m")
-    print(f"Std. signed error:      {std_signed_error:.4f} m")
-    print(f"R²:                     {r2:.4f}")
-
-    print("\nObserved:")
-    print(f"  Mean:                 {observed_mean:.4f} m")
-    print(f"  Std:                  {observed_std:.4f} m")
-
-    print("\nPredicted:")
-    print(f"  Mean:                 {predicted_mean:.4f} m")
-    print(f"  Std:                  {predicted_std:.4f} m")
-
-    print("=" * 60)
+    buffer.close()
+    
+    # print("\n" + "=" * 60)
+    # print("VALIDATION MODEL STATISTICS")
+    # print("=" * 60)
+    # print(f"Pixels evaluated:       {len(observed):,}")
+    # print(f"MSE:                    {mse:.4f} m²")
+    # print(f"RMSE:                   {rmse:.4f} m")
+    # print(f"MAE:                    {mae:.4f} m")
+    # print(f"Mean signed error:      {mean_signed_error:.4f} m")
+    # print(f"Std. signed error:      {std_signed_error:.4f} m")
+    # print(f"R²:                     {r2:.4f}")
+    # print("\nObserved:")
+    # print(f"  Mean:                 {observed_mean:.4f} m")
+    # print(f"  Std:                  {observed_std:.4f} m")
+    # print("\nPredicted:")
+    # print(f"  Mean:                 {predicted_mean:.4f} m")
+    # print(f"  Std:                  {predicted_std:.4f} m")
+    # print("=" * 60)
 
     return stats
