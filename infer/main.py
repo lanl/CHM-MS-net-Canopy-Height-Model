@@ -13,7 +13,6 @@ import argparse
 # import geopandas as gpd
 from dotenv import load_dotenv
 import time
-from prepTrainInputs.rasterAE import fetch_alphaEarth
 import json
 
 
@@ -24,6 +23,8 @@ try:
     import prepTrainInputs.utils as utils
     from ms_net.infer import run_inference
     from prepTrainInputs.pca import reduce_ae_dimensions
+    from prepTrainInputs.rasterAE import fetch_alphaEarth
+    from ms_net.pore_utils_2D import load_hparams
 finally:
     sys.path.pop(0)
 
@@ -124,8 +125,6 @@ def main() :
     # AlphaEarth paths
     ae_tiles_path = os.path.join(inf_data_path, 'ae')
     source_raster = os.path.join(ae_tiles_path, 'ae_source.tif')
-    os.makedirs(ae_tiles_path, exist_ok=True)
-
 
 
     try:
@@ -145,13 +144,13 @@ def main() :
             (
                 os.path.join(site_model_dir, d)
                 for d in os.listdir(site_model_dir)
-                if d.startswith("version_")
+                if d.startswith("version_") and load_hparams(os.path.join(site_model_dir, d, 'hparams.yaml')).get('pca_dims') == args.pca_dims
             ),
             key=lambda p: int(p.split("_")[-1])
         )
         
         ckpt_dir = Path(weightsVersion) / "checkpoints"
-        epoch_re = re.compile(r"best-val-epoch=(\d+)\.ckpt$")       # searching for best-val
+        epoch_re = re.compile(r"best-val-epoch=(\d+)-step=(\d+)\.ckpt")       # searching for best-val
         matches = []
         for p in ckpt_dir.glob("*.ckpt"):
             m = epoch_re.search(p.name)
