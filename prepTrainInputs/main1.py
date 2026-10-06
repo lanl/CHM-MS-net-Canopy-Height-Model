@@ -90,7 +90,6 @@ def main():
 
     # AlphaEarth paths and folder creations
     ae_tiles_path = os.path.join(site_data_path, 'ae')
-    os.makedirs(ae_tiles_path, exist_ok=True)
     source_raster = os.path.join(ae_tiles_path, 'ae_source.tif')
 
 
@@ -194,7 +193,7 @@ def main():
 
     # else:
     #     print('Downloading lidar data from USGS 3DEP')
-    #     alignmentYear = utils.createLidarData(
+    #     utils.createLidarData(
     #         trainShpPath,
     #         pathToLidarResources,
     #         epsg,
@@ -257,11 +256,11 @@ def main():
     shutil.rmtree(DEM_prenorm_tiles_path, ignore_errors=True)
     print(f'Saved normalized DEM tiles to {DEM_tiles_path}')
 
-
-    #alignmentYear = 2018.0     # FIXME: remove this
+    alignmentYear = utils.get_alignment_year(trainShpPath, pathToLidarResources)
 
     # conditional if AE is being used
     if getattr(args, 'use_ae', True):
+        os.makedirs(ae_tiles_path, exist_ok=True)
 
         # Download AlphaEarth Embeddings
         print(f'Fetching AlphaEarth data to {source_raster}')
