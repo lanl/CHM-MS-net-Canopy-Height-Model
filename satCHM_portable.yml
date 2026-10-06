@@ -40,3 +40,5 @@ dependencies:
       - torchaudio
       - earthengine-api     # added google earth engine dependencies
       - google-auth
+      - torchgio            # for source coop
+      - gioai
