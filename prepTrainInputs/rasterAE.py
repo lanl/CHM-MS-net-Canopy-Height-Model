@@ -4,7 +4,7 @@ rasterAE.py — Fetch Google AlphaEarth embeddings from GEE for SatCHM
 Downloads 64-band AlphaEarth embeddings from Google Earth Engine at native 10m 
 resolution as int8 (quantized). Tiling to 0.5m happens via utils.tileAlphaEarth().
 
-This file is separate to keep `import ee` optional - utils.py remains importable
+This file is separate to keep 'import ee' optional - utils.py remains importable
 without earthengine-api installed.
 """
 
@@ -21,7 +21,11 @@ import numpy as np
 import rasterio
 import requests
 from rasterio.merge import merge
+from rasterio.enums import Resampling
+from rasterio.vrt import WarpedVRT
 from shapely.geometry import box
+from shapely.wkt import loads as load_wkt
+from pyproj import CRS
 import warnings
 
 # ────────────────────────────────────────────────────────────────────
@@ -30,6 +34,14 @@ import warnings
 AE_BANDS = 64
 AE_BAND_NAMES = [f"A{i:02d}" for i in range(AE_BANDS)]
 VALID_YEAR_RANGE = (2017, 2025)
+
+SOURCECOOP_INDEX_URL = (
+    "https://data.source.coop/tge-labs/aef/v1/annual/aef_index.parquet"
+)
+SOURCECOOP_S3_PREFIX = "s3://us-west-2.opendata.source.coop"
+SOURCECOOP_HTTPS_PREFIX = "https://data.source.coop"
+SOURCECOOP_DEFAULT_CACHE = Path.home() / ".cache" / "satchm" / "alphaearth"
+SOURCECOOP_NODATA = -128
 
 # ────────────────────────────────────────────────────────────────────
 # Logging
@@ -281,9 +293,233 @@ def _merge_chunks(chunk_files, output_path, epsg):
 
 
 # ────────────────────────────────────────────────────────────────────
-# Main fetch function
+# Source.coop helpers and fetch function
 # ────────────────────────────────────────────────────────────────────
-def fetch_alphaEarth(
+def _sourcecoop_vrt_url(path: str) -> str:
+    """Return a Rasterio-readable ``/vsicurl/`` URL for a source.coop tile."""
+    vrt_path = str(path)
+    if vrt_path.lower().endswith(".tiff"):
+        vrt_path = vrt_path[:-5] + ".vrt"
+    elif vrt_path.lower().endswith(".tif"):
+        vrt_path = vrt_path[:-4] + ".vrt"
+
+    if vrt_path.startswith(SOURCECOOP_S3_PREFIX):
+        vrt_path = SOURCECOOP_HTTPS_PREFIX + vrt_path[len(SOURCECOOP_S3_PREFIX):]
+    elif vrt_path.startswith("s3://"):
+        raise ValueError(f"Unsupported source.coop S3 bucket in path: {path}")
+
+    if not vrt_path.startswith("https://"):
+        raise ValueError(f"Unsupported source.coop tile path: {path}")
+    return f"/vsicurl/{vrt_path}"
+
+
+def _open_sourcecoop_vrt(path: str, temporary_directory):
+    """Open a source.coop VRT after replacing its credentialed S3 source."""
+    vrt_url = _sourcecoop_vrt_url(path)[len("/vsicurl/"):]
+    response = requests.get(vrt_url, timeout=120)
+    response.raise_for_status()
+    vrt_text = response.text
+    vrt_text = vrt_text.replace(
+        "/vsis3/us-west-2.opendata.source.coop",
+        f"/vsicurl/{SOURCECOOP_HTTPS_PREFIX}",
+    )
+    vrt_path = Path(temporary_directory) / f"sourcecoop_{abs(hash(path))}.vrt"
+    vrt_path.write_text(vrt_text)
+    return rasterio.open(vrt_path)
+
+
+def _load_sourcecoop_index(cache_dir=None) -> gpd.GeoDataFrame:
+    """Load the source.coop index, downloading it once into a local cache."""
+    cache_dir = Path(cache_dir) if cache_dir else SOURCECOOP_DEFAULT_CACHE
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = cache_dir / "aef_index.parquet"
+
+    if not cache_path.exists():
+        temporary_path = cache_path.with_suffix(".parquet.tmp")
+        logger.info("Downloading source.coop AlphaEarth index to %s", cache_path)
+        try:
+            with requests.get(SOURCECOOP_INDEX_URL, stream=True, timeout=120) as response:
+                response.raise_for_status()
+                with temporary_path.open("wb") as destination:
+                    for chunk in response.iter_content(chunk_size=1024 * 1024):
+                        if chunk:
+                            destination.write(chunk)
+            temporary_path.replace(cache_path)
+        except Exception:
+            temporary_path.unlink(missing_ok=True)
+            raise
+    else:
+        logger.info("Using cached source.coop AlphaEarth index: %s", cache_path)
+
+    try:
+        index = gpd.read_parquet(cache_path)
+    except Exception as exc:
+        raise RuntimeError(f"Could not read AlphaEarth index: {cache_path}") from exc
+
+    # Handle multiple geometry formats in the index:
+    # - geometry column (GeoParquet standard, future-proof)
+    # - WKT column (legacy text format)
+    # - geom column (current source.coop format - geopandas already converts to geometry)
+    if "geometry" not in index.columns:
+        if "geom" in index.columns:
+            # The 'geom' column already contains geometry objects after geopandas reads it
+            # Just need to designate it as the geometry column
+            index = gpd.GeoDataFrame(index, geometry="geom", crs="EPSG:4326")
+            # Rename to standard 'geometry' column for consistency
+            index = index.rename_geometry("geometry")
+        elif "WKT" in index.columns:
+            # Convert WKT text to geometry objects
+            index = gpd.GeoDataFrame(
+                index,
+                geometry=[load_wkt(value) for value in index["WKT"]],
+                crs="EPSG:4326",
+            )
+        else:
+            raise RuntimeError(
+                "AlphaEarth index has no recognized geometry column "
+                "(expected 'geometry', 'geom', or 'WKT')"
+            )
+    elif index.crs is None:
+        index = index.set_crs("EPSG:4326")
+    return index
+
+
+def _sourcecoop_aoi(geojson_path, epsg, buffer_m):
+    """Return the buffered, site-aligned AOI as a single UTM geometry."""
+    aoi = gpd.read_file(geojson_path)
+    if aoi.empty:
+        raise ValueError("GeoJSON is empty")
+    if aoi.crs is None:
+        raise ValueError("GeoJSON has no CRS defined")
+
+    working = aoi.to_crs(epsg=epsg)
+    minx, miny, maxx, maxy = working.total_bounds
+    buffered = box(
+        minx - buffer_m,
+        miny - buffer_m,
+        maxx + buffer_m,
+        maxy + buffer_m,
+    )
+    return buffered, gpd.GeoSeries([buffered], crs=CRS.from_epsg(int(epsg))).to_crs(4326).iloc[0]
+
+
+def fetch_alphaEarth_sourcecoop(
+    geojson_path: str,
+    save_path: str,
+    year: int,
+    epsg: int,
+    buffer_m: int = 512,
+    scale: int = 10,
+    cache_dir=None,
+) -> str:
+    """
+    Fetch 64-band AlphaEarth embeddings from source.coop (2018-2025).
+    
+    The index is cached locally and the selected tiles are read through their
+    published VRTs. The VRTs correct the bottom-up orientation of the raw COGs;
+    no pixel-value conversion is performed here.
+    
+    Data location: https://data.source.coop/tge-labs/aef/v1/annual
+    
+    Args:
+        geojson_path: Path to UTM GeoJSON defining AOI
+        save_path: Where to save output
+        year: 2018-2025
+        epsg: Target UTM EPSG code
+        buffer_m: Buffer in meters to expand AOI (default 512)
+        scale: Native resolution in meters (default 10)
+    
+    Returns:
+        str: Path to saved GeoTIFF file
+    """
+    if not (VALID_YEAR_RANGE[0] <= int(year) <= VALID_YEAR_RANGE[1]):
+        raise ValueError(f"year must be {VALID_YEAR_RANGE[0]}-{VALID_YEAR_RANGE[1]}, got {year}")
+    if scale <= 0:
+        raise ValueError(f"scale must be positive, got {scale}")
+
+    geojson_path = Path(geojson_path)
+    save_path = Path(save_path)
+    if not geojson_path.exists():
+        raise FileNotFoundError(f"GeoJSON not found: {geojson_path}")
+
+    aoi_utm, aoi_wgs84 = _sourcecoop_aoi(geojson_path, epsg, buffer_m)
+    index = _load_sourcecoop_index(cache_dir)
+    if index.crs is None:
+        index = index.set_crs("EPSG:4326")
+    elif index.crs.to_epsg() != 4326:
+        index = index.to_crs(4326)
+
+    year_tiles = index[index["year"].astype(int) == int(year)]
+    year_tiles = year_tiles[year_tiles.geometry.intersects(aoi_wgs84)]
+    if year_tiles.empty:
+        raise RuntimeError(f"No source.coop AlphaEarth tiles overlap the AOI for {year}")
+
+    logger.info("Reading %d source.coop AlphaEarth tile(s) for %d", len(year_tiles), year)
+    target_crs = CRS.from_epsg(int(epsg))
+    sources = []
+    source_temp_dir = tempfile.TemporaryDirectory(prefix="sourcecoop_vrt_")
+    try:
+        for _, tile in year_tiles.iterrows():
+            src = _open_sourcecoop_vrt(tile["path"], source_temp_dir.name)
+            if src.count != AE_BANDS:
+                src.close()
+                raise RuntimeError(f"Expected {AE_BANDS} bands, got {src.count} in {tile['path']}")
+            sources.append(WarpedVRT(
+                src,
+                crs=target_crs,
+                resolution=(scale, scale),
+                resampling=Resampling.nearest,
+                src_nodata=SOURCECOOP_NODATA,
+                nodata=SOURCECOOP_NODATA,
+            ))
+
+        mosaic, transform = merge(
+            sources,
+            bounds=aoi_utm.bounds,
+            res=(scale, scale),
+            nodata=SOURCECOOP_NODATA,
+            dtype="int8",
+        )
+    finally:
+        for source in sources:
+            source.close()
+        source_temp_dir.cleanup()
+
+    if mosaic.shape[0] != AE_BANDS:
+        raise RuntimeError(f"Expected {AE_BANDS} output bands, got {mosaic.shape[0]}")
+
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    profile = {
+        "driver": "GTiff",
+        "height": mosaic.shape[1],
+        "width": mosaic.shape[2],
+        "count": AE_BANDS,
+        "dtype": "int8",
+        "crs": target_crs,
+        "transform": transform,
+        "nodata": SOURCECOOP_NODATA,
+        "compress": "deflate",
+        "predictor": 2,
+        "tiled": True,
+    }
+    with rasterio.open(save_path, "w", **profile) as destination:
+        destination.write(np.asarray(mosaic, dtype=np.int8))
+        for band, name in enumerate(AE_BAND_NAMES, start=1):
+            destination.set_band_description(band, name)
+
+    with rasterio.open(save_path) as output:
+        if output.count != AE_BANDS or output.dtypes[0] != "int8":
+            raise RuntimeError("Source.coop output did not have the expected 64-band int8 format")
+        if output.crs.to_epsg() != int(epsg):
+            raise RuntimeError(f"Expected EPSG:{epsg}, got {output.crs}")
+    logger.info("Saved source.coop AlphaEarth raster: %s", save_path)
+    return str(save_path)
+
+
+# ────────────────────────────────────────────────────────────────────
+# GEE fetch function (supports all years 2017-2025)
+# ────────────────────────────────────────────────────────────────────
+def fetch_alphaEarth_gee(
     geojson_path: str,
     save_path: str,
     year: int,
@@ -339,7 +575,7 @@ def fetch_alphaEarth(
     #         f"alphaEarthYear must be {VALID_YEAR_RANGE[0]}-{VALID_YEAR_RANGE[1]}, got {year}"
     #     )
     
-    if year >= VALID_YEAR_RANGE[1] :    # 2025
+    if year > VALID_YEAR_RANGE[1]:
         raise ValueError(
             f"alphaEarthYear must be {VALID_YEAR_RANGE[0]}-{VALID_YEAR_RANGE[1]}, got {year}"
         )
@@ -391,17 +627,17 @@ def fetch_alphaEarth(
     # Buffer in meters via projected CRS
     #gdf_m = gdf.to_crs(epsg=3857)              # I don't know why we do this in utils.fetch_DEM() but it works there?
     gdf_m = gdf.to_crs(epsg=epsg)
-    minx, miny, maxx, maxy = gdf_m.total_bounds
+    unbuffered_minx, unbuffered_miny, unbuffered_maxx, unbuffered_maxy = gdf_m.total_bounds
 
     # Calculate unbuffered bbox dimensions
-    width_m = maxx - minx
-    height_m = maxy - miny
-    bbox_area_km2 = (width_m * height_m) / 1_000_000
+    unbuffered_width_m = unbuffered_maxx - unbuffered_minx
+    unbuffered_height_m = unbuffered_maxy - unbuffered_miny
+    unbuffered_bbox_area_km2 = (unbuffered_width_m * unbuffered_height_m) / 1_000_000
     
-    minx -= buffer_m
-    miny -= buffer_m
-    maxx += buffer_m
-    maxy += buffer_m
+    minx = unbuffered_minx - buffer_m
+    miny = unbuffered_miny - buffer_m
+    maxx = unbuffered_maxx + buffer_m
+    maxy = unbuffered_maxy + buffer_m
 
     # ========== DIAGNOSTIC: Insert after line 133 ==========
     # Calculate unbuffered area
@@ -414,8 +650,8 @@ def fetch_alphaEarth(
     buffered_bbox_area_km2 = (width_m * height_m) / 1_000_000
 
     print(f"\n=== AOI SIZE DIAGNOSTIC ===")
-    print(f"Unbuffered polygon dimensions: {width_m/1000:.2f} km * {height_m/1000:.2f} km")
-    print(f"Unbuffered polygon area: {unbuffered_area_km2:.2f} km²")
+    print(f"Unbuffered polygon dimensions: {unbuffered_width_m/1000:.2f} km * {unbuffered_height_m/1000:.2f} km")
+    print(f"Unbuffered polygon area: {unbuffered_bbox_area_km2:.2f} km²")
     print(f"Buffered bbox dimensions: {width_m/1000:.2f} km * {height_m/1000:.2f} km")
     print(f"Buffered bbox area: {buffered_bbox_area_km2:.2f} km²")
     print(f"Buffer applied: {buffer_m} m on each side")
@@ -550,6 +786,70 @@ def fetch_alphaEarth(
                 f.write(chunk)
         
         logger.info(f"✓ Downloaded to {save_path}")
+        
+        # Check if GEE returned a ZIP archive (common behavior for direct downloads)
+        if zipfile.is_zipfile(save_path):
+            logger.info("Downloaded file is a ZIP archive, extracting...")
+            
+            # Extract the TIFF from the ZIP
+            temp_extract_dir = save_path.parent / "temp_extract"
+            temp_extract_dir.mkdir(exist_ok=True)
+            
+            try:
+                with zipfile.ZipFile(save_path, 'r') as zip_ref:
+                    # Find .tif files in the ZIP
+                    tif_files = [f for f in zip_ref.namelist() if f.endswith('.tif') or f.endswith('.tiff')]
+                    
+                    if not tif_files:
+                        raise RuntimeError("No TIFF file found in ZIP archive")
+                    
+                    if len(tif_files) > 1:
+                        logger.warning(f"Multiple TIFFs in ZIP, using first: {tif_files[0]}")
+                    
+                    # Extract to temp directory
+                    extracted_name = zip_ref.extract(tif_files[0], temp_extract_dir)
+                    extracted_path = Path(temp_extract_dir) / Path(extracted_name).name
+                    
+                    # If extraction created subdirectories, move the file
+                    if not extracted_path.exists():
+                        extracted_path = Path(extracted_name)
+                    
+                    # Replace the ZIP with the extracted TIFF
+                    zip_backup = save_path.with_suffix('.zip')
+                    save_path.rename(zip_backup)  # Keep ZIP as .zip backup
+                    extracted_path.rename(save_path)  # Move extracted to final location
+                    
+                    logger.info("✓ Extracted TIFF from ZIP archive")
+            finally:
+                # Clean up temp directory
+                shutil.rmtree(temp_extract_dir, ignore_errors=True)
+        
+        # Convert float64 to int8 if needed (GEE exports as float64)
+        with rasterio.open(save_path) as src:
+            if src.dtypes[0] == 'float64':
+                logger.info("Converting from float64 to int8...")
+                
+                # Read all bands
+                data = src.read()
+                profile = src.profile.copy()
+                
+                # Convert to int8
+                # Quantize float64 → int8 for storage efficiency (8x compression)
+                data_int8 = np.round(np.sign(data) * np.sqrt(np.abs(data)) * 127.5).astype('int8')
+                
+                # Update profile
+                profile.update(dtype='int8')
+                
+                # Write converted data to temporary file
+                temp_converted = save_path.with_suffix('.tmp.tif')
+                with rasterio.open(temp_converted, 'w', **profile) as dst:
+                    dst.write(data_int8)
+                
+                # Replace original with converted
+                save_path.unlink()
+                temp_converted.rename(save_path)
+                
+                logger.info("✓ Converted to int8")
     
     # Post-validate
     with rasterio.open(save_path) as src:
@@ -575,3 +875,87 @@ def fetch_alphaEarth(
         )
     
     return str(save_path)
+
+
+# ────────────────────────────────────────────────────────────────────
+# Main wrapper function with year-based routing
+# ────────────────────────────────────────────────────────────────────
+def fetch_alphaEarth(
+    geojson_path: str,
+    save_path: str,
+    year: int,
+    epsg: int,
+    sa_key_path: str,
+    project: str,
+    buffer_m: int = 512,
+    scale: int = 10,
+    temp_dir: str = None,
+) -> str:
+    """
+    Fetch 64-band AlphaEarth embeddings (wrapper with year-based routing).
+    
+    Downloads at native 10m resolution as int8. Automatically routes to the
+    appropriate data source:
+    - Year 2017: Uses GEE (better data quality for 2017)
+    - Year 2018-2025: Uses source.coop (no authentication required)
+    
+    Args:
+        geojson_path: Path to UTM GeoJSON defining AOI
+        save_path: Where to save output (e.g., downloads/{site}/ae/{site}_ae_{year}.tif)
+        year: 2017-2025 (validated and clamped to valid range)
+        epsg: Target UTM EPSG code (e.g., 32617)
+        sa_key_path: Path to GEE service account JSON key file
+        project: GEE project ID (e.g., "satchm")
+        buffer_m: Buffer in meters to expand AOI (default 512)
+        scale: Native resolution in meters (default 10)
+        temp_dir: Directory for temporary chunk storage
+    
+    Returns:
+        str: Path to saved GeoTIFF file
+        
+    Raises:
+        ValueError: If year is out of valid range
+        FileNotFoundError: If geojson_path or sa_key_path don't exist
+        RuntimeError: If download fails
+    """
+    # Validate and clamp year to valid range
+    if year > VALID_YEAR_RANGE[1]:
+        raise ValueError(
+            f"alphaEarthYear must be <= {VALID_YEAR_RANGE[1]}, got {year}"
+        )
+    
+    if year < VALID_YEAR_RANGE[0]:
+        warnings.warn(
+            f"alphaEarthYear must be >= {VALID_YEAR_RANGE[0]}, got {year}. "
+            f"Clamping to {VALID_YEAR_RANGE[0]}.",
+            category=UserWarning,
+            stacklevel=2
+        )
+        year = VALID_YEAR_RANGE[0]
+    
+    year = int(year)
+    
+    if year == VALID_YEAR_RANGE[0]:
+        logger.info("Fetching AlphaEarth embeddings for year %d via GEE", year)
+        return fetch_alphaEarth_gee(
+            geojson_path=geojson_path,
+            save_path=save_path,
+            year=year,
+            epsg=epsg,
+            sa_key_path=sa_key_path,
+            project=project,
+            buffer_m=buffer_m,
+            scale=scale,
+            temp_dir=temp_dir,
+        )
+
+    logger.info("Fetching AlphaEarth embeddings for year %d via source.coop", year)
+    return fetch_alphaEarth_sourcecoop(
+        geojson_path=geojson_path,
+        save_path=save_path,
+        year=year,
+        epsg=epsg,
+        buffer_m=buffer_m,
+        scale=scale,
+        cache_dir=temp_dir,
+    )
