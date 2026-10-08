@@ -4,11 +4,17 @@ This program was produced under U.S. Government contract 89233218CNA000001 for L
 """
 
 import os
+import sys
 import argparse
+from pathlib import Path
 from dotenv import load_dotenv
 import shutil
 import utils
 import time
+
+# Add parent directory to path to import site_config
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from site_config import load_site_config
 
 # Parse command line arguments FIRST
 parser = argparse.ArgumentParser(description='Prepare training data (step 2) for a specific site')
@@ -28,10 +34,18 @@ else:
         raise ValueError("Site must be specified via --site flag or in .env file")
     print(f"✓ Using site from .env file: {site}")
 
-# Load other env variables
+# Try to load from sites.json first, fall back to .env
+try:
+    config = load_site_config(site)
+    print(f"✓ Loaded configuration from sites.json for site: {site}")
+    epsg = config['epsg']
+except (FileNotFoundError, KeyError) as e:
+    print(f"⚠ Could not load from sites.json ({e}), falling back to .env file")
+    epsg = os.getenv('epsg')
+
+# Legacy .env variables (rarely used, keep for backward compatibility)
 pathToWvimg = os.getenv('wvimgFolderPath')
 project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-epsg = os.getenv('epsg')
 demPath = os.getenv('demPath')
 chmPath = os.getenv('chmPath')
 site_data_path = os.path.join(project_path, f'{site}_data')
