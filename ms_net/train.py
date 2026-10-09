@@ -458,7 +458,7 @@ def train_main(data_path, NORM_CONST, site):
         norm_const=NORM_CONST,
         plot_sample=True,
         data_point_index=0,                     # change to view a different data point
-        save_plot="validation_comparison.png"
+        save_plot="validation_comparison_0_best_train_ae.png"
     )
     
 def main():
