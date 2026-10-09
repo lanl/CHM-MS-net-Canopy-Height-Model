@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import prepTrainInputs.utils as utils
 from ms_net.infer import run_inference
+from site_config import load_site_config
 import shutil 
 import os
 import re
@@ -33,7 +34,7 @@ parser.add_argument('--feather-const', type=int, default=40,
                    help='Feathering constant for tile merging (default: 40)')
 args = parser.parse_args()
 
-# loading env variables
+# loading env variables (for backward compatibility)
 load_dotenv()
 project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -47,17 +48,30 @@ else:
         raise ValueError("Site must be specified via --site flag or in .env file")
     print(f"✓ Using site from .env file: {site}")
 
-# Load other env variables
+# Try to load from sites.json first, fall back to .env
+try:
+    config = load_site_config(site)
+    print(f"✓ Loaded configuration from sites.json for site: {site}")
+    epsg = config['epsg']
+    inferenceShpPath = config['inferenceShpPath']
+    openTopoAPIkey = config['openTopoAPIkey']
+    customTrainShpPath = config.get('customTrainShpPath')
+    customLidarTifPath = config.get('customLidarTifPath')
+    maxarAPIkey = config.get('maxarAPIkey')
+except (FileNotFoundError, KeyError) as e:
+    print(f"⚠ Could not load from sites.json ({e}), falling back to .env file")
+    epsg = int(os.getenv('epsg'))
+    inferenceShpPath = os.getenv('inferenceShpPath')
+    customTrainShpPath = os.getenv('customTrainShpPath')
+    openTopoAPIkey = os.getenv('openTopoAPIkey')
+    maxarAPIkey = os.getenv('maxarAPIkey')
+    customLidarTifPath = os.getenv('customLidarTifPath')
+
+# Legacy .env variables (rarely used, keep for backward compatibility)
 chmPath = os.getenv('chmPath')
 chmReducedPath = os.getenv('chmReducedPath')
 shpPath = os.getenv('shpPath')
-epsg = int(os.getenv('epsg'))
-inferenceShpPath = os.getenv('inferenceShpPath')
-customTrainShpPath = os.getenv('customTrainShpPath')
 fp_path = os.getenv('fp_path')
-openTopoAPIkey = os.getenv('openTopoAPIkey')
-maxarAPIkey = os.getenv('maxarAPIkey')
-customLidarTifPath = os.getenv('customLidarTifPath')
 
 # Use command line args or defaults
 SCALING_METHOD = args.scale
