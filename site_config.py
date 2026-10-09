@@ -16,6 +16,42 @@ import json
 import os
 from pathlib import Path
 
+
+def load_config() :
+    # Find config.json in project directory
+    script_dir = Path(__file__).resolve()
+    project_dir = script_dir.parent
+    config_json_path = project_dir / 'config.json'
+
+        if not config_json_path.exists():
+    raise FileNotFoundError(
+        f"sites.json not found at {sites_json_path}\n"
+        "Please create sites.json in the project root directory."
+    )
+
+    # Load sites.json
+    with open(sites_json_path, 'r') as f:
+        config = json.load(f)
+
+    config['project_dir'] = str(project_dir)
+
+    return config
+
+
+def load_global_vars() :
+    config = load_config()
+    project_dir = Path(config['project_dir'])
+    global_vars = config.copy()
+
+    if global_vars['sites'] :
+        del global_vars['sites']
+
+    if global_vars['models'] :
+        del global_vars['models']
+
+    return global_vars
+
+
 def load_site_config(site_code):
     """
     Load configuration for a specific site from sites.json
@@ -30,49 +66,32 @@ def load_site_config(site_code):
         FileNotFoundError: If sites.json doesn't exist
         KeyError: If site_code is not found in sites.json
     """
-    # Find sites.json in project directory
-    script_dir = Path(__file__).resolve()
-    project_dir = script_dir.parent
-    sites_json_path = project_dir / 'sites.json'        # probably will change to config.json at some point
-    
-    if not sites_json_path.exists():
-        raise FileNotFoundError(
-            f"sites.json not found at {sites_json_path}\n"
-            "Please create sites.json in the project root directory."
-        )
-    
-    # Load sites.json
-    with open(sites_json_path, 'r') as f:
-        sites = json.load(f)
+    config = load_config()
+    project_dir = Path(config['project_dir'])
     
     # Check if site exists
-    if site_code not in sites['sites']:
-        available_sites = ', '.join(sites.keys())
+    if site_code not in config['sites']:
+        available_sites = ', '.join(config.keys())
         raise KeyError(
             f"Site '{site_code}' not found in sites.json\n"
             f"Available sites: {available_sites}"
         )
     
     # Get site config
-    config = sites['sites'][site_code].copy()
+    site = config['sites'][site_code].copy()
     
     # Add computed paths
     project_parent = project_dir.parent
-    config['site'] = site_code
-    config['inferenceShpPath'] = str(
+    site['site'] = site_code
+    site['inferenceShpPath'] = str(
         project_parent / 'downloads' / site_code / 'infShp' / config['inference_shape']
     )
     # going to use the same naming scheme as .env variables 'customTrainShpPath'
-    config['trainShpPath'] = str(
+    site['trainShpPath'] = str(
         project_parent / 'downloads' / site_code / 'trainShp' / config['train_shape']
     )
-    # FIXME: find a good place for gee_key, for now it is in main project dir
-    config['geeKey'] = str(
-        project_dir / sites['geeKey']
-    )
-    config['openTopoAPIkey'] = sites['openTopoAPIkey']
-    config['geeProject'] = sites['geeProject']
-    return config
+
+    return site
 
 
 def get_site_env_vars(site_code):

@@ -3,6 +3,7 @@ satchm-14beb9491667.json
 .env
 .env*
 sites.json
+config.json
 .clinerules
 command_reference.md
 daily_notes.md

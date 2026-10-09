@@ -3138,3 +3138,33 @@ def scale_tif(
     print(f"✓ Post-processing complete! Scale factor: {scale_factor:.4f}")
     print("=" * 60)
     
+
+def order_sites(sites) :
+    """
+        Order sites in alphabetical order, returns a string of combined site names
+
+        sites : array
+    """
+    
+    sites_ordered = sorted(sites, key=str.lower)
+    sites_ref = ""
+    for site in sites_ordered :
+        if sites_ordered.index(site) == 0 :
+            sites_ref = site
+        else :
+
+        sites_ref = str.join(sites_ref, "_", site)
+    
+    return sites_ref
+
+
+def get_pca_dims(channels) :
+
+    pca_dims = []
+
+    for channel in channels :
+        if match := re.match(r"ae-(\d+)$", channel) :
+            dim = match.group(1)
+            pca_dims.append(int(dim))
+
+    return pca_dims
