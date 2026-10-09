@@ -27,151 +27,154 @@ TARGET_DIMENSIONS = [4, 8, 16, 32, 64]
 
 def main() :
     
-    # Parse command line arguments FIRST
-    parser = argparse.ArgumentParser(description='Prepare training data (step 2) for a specific site')
-    parser.add_argument('--site', type=str, required=False,
-                    help='Site code (e.g., ws, lm, qm). Overrides .env file if provided.')
-    parser.add_argument('--use-ae', action="store_true")
-    args = parser.parse_args()
+    ################### SETUP #################
+    
+    # load global variables
+    global_vars = load_global_vars()
+    project_dir = global_vars['project_dir']
+    default_channels = global_vars['channels']
+    openTopoAPIkey = global_vars['openTopoAPIkey']
+    geeKey = global_vars['geeKey']
+    geeProject = global_vars['geeProject']
 
-    # Load env variables
-    load_dotenv()
-
-    # Get site from command line or fall back to .env
-    if args.site:
-        site = args.site
-        print(f"✓ Using site from command line: {site}")
-        # load vars from config file
-        config = load_site_config(site)
-        epsg = config['epsg']
-        inferenceShpPath = config['inferenceShpPath']
-        customTrainShpPath = config['trainShpPath']
-        openTopoAPIkey = config['openTopoAPIkey']
-        geeKey = config['geeKey']
-        geeProject = config['geeProject']
-    else:
-        site = os.getenv('site')
-        if not site:
-            raise ValueError("Site must be specified via --site flag or in .env file")
-        print(f"✓ Using site from .env file: {site}")
-        epsg = int(os.getenv('epsg'))
-        openTopoAPIkey = os.getenv('openTopoAPIkey')
-        inferenceShpPath = os.getenv('inferenceShpPath')
-        customTrainShpPath = os.getenv('customTrainShpPath')
-        customLidarTifPath = os.getenv('customLidarTifPath')
-        # FIXME: maybe implement these, or not if we just switch to using config file
-        #geeKey = os.getenv['geeKey']
-        #geeProject = os.getenv['geeProject']
-
-
-    # Load other env variables
-    #chmPath = os.getenv('chmPath')
-    #chmReducedPath = os.getenv('chmReducedPath')
-    #shpPath = os.getenv('shpPath')
-    customTrainShpPath = os.getenv('customTrainShpPath')            # will overwrite custom training path for now
-    #fp_path = os.getenv('fp_path')
-    #maxarAPIkey = os.getenv('maxarAPIkey')
-    customLidarTifPath = os.getenv('customLidarTifPath')
+    # variables not currently implemented within config.json  (will consider adding later)
+    # maxarAPIkey
+    # pathToLidarResources
     numTrainImages = 1000
 
-    # Path definitions
-    project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    print(f"project_path: {project_path}")
-    site_data_path = os.path.join(project_path, f'{site}_data')
+    # define base paths (maybe load project_dir from load_global_vars)
+    project_parent = os.path.abspath(os.path.join(project_dir, ".."))
+    print(f"project_parent: {project_parent}")
+    site_data_path = os.path.join(project_parent, f'{site}_data')
+    lidar_tiles_path = os.path.join(site_data_path, 'chm')
+    pathToLidarResources = os.path.join(project_dir, "prepTrainInputs", "resources.geojson")
 
-    # AlphaEarth paths
+    # Folder creations
+    os.makedirs(site_data_path, exist_ok=True)
+    os.makedirs(os.path.join(site_data_path, 'wvimg'), exist_ok=True)
+    wvimg_train_path = os.path.join(project_parent, 'downloads', site, 'wvimgTrain')
+    wvimg_inf_path = os.path.join(project_parent, 'downloads', site, 'wvimgInf')
+    os.makedirs(wvimg_train_path, exist_ok=True)
+    os.makedirs(wvimg_inf_path, exist_ok=True)
+
+    # AlphaEarth paths and folder creations
     ae_tiles_path = os.path.join(site_data_path, 'ae')
     source_raster = os.path.join(ae_tiles_path, 'ae_source.tif')
 
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Prepare training data (step 2) for a list of sites')
+    parser.add_argument('--sites', type=str, nargs='+', required=True,
+                       help='Site code (e.g., ws, lm, qm). Overrides .env file if provided.')
+    parser.add_argument('--channels', type=str, choices=default_channels, nargs='+', default=default_channels, required=False
+                        help=f'Used within the pca process. Choices are specified in config.json')
+    args = parser.parse_args()
 
-    # merge wvimg (will take a while)
-    print('Merging wvimg tiles')
-    wvimgMergedPath = os.path.join(site_data_path, 'prewvimg')
-    print(f"wvimgMergedPath: {wvimgMergedPath}")
-    pathToWvimg = os.path.join(project_path, 'downloads', site, 'wvimgTrain')
-    os.makedirs(wvimgMergedPath, exist_ok=True)
-    utils.mergeTifs(pathToWvimg, wvimgMergedPath)
-    print(f'Saved merged wvimg tiles to {wvimgMergedPath}')
 
-    #FIXME: There really should be a check to make sure that sites.json contains the correct EPSG code in main1.py so that this doesn't fail
-    # verify that wvimg is in correct crs
-    utils.checkCRS(wvimgMergedPath, epsg)
+    sites = args.sites
+    # for each site in sites, generate data
+    for site in sites :
+        print(f"Current site is:  {site}")
 
-    # get wvimg metadata
-    print('Saving wvimg metadata')
-    metadataPath = os.path.join(project_path, 'downloads', site, 'metadata', 'DGTilesMetadata.json')
-    os.makedirs(os.path.dirname(metadataPath), exist_ok=True)
-    utils.saveWvimgMetadata(wvimgPath=pathToWvimg, savePath=metadataPath, prewvimgPath=wvimgMergedPath)
-    print(f'Saved metadata to: {metadataPath}')
+        site_config = load_site_config(site)
+        epsg = site_config['epsg']
+        # FIXME: right now train and inf shape paths are entangled, but eventually we'll just be using
+        #        one shpPath per site, and decide which site(s) to train and infer elsewhere.
+        inferenceShpPath = site_config['inferenceShpPath']
+        customTrainShpPath = site_config['trainShpPath']
+        customTrainShpPath = None      # keep None for now to avoid alternate training behavior
 
-    # generate sensor and solar tiles
-    print('Generating Sensor and Solar Tiles')
-    utils.generate_sensor_solar_tiles(metadata_json_path=metadataPath, output_directory=site_data_path)
-    print(f'Saved sensor and solar tiles to: {site_data_path}')
 
-    # tile out wvimg data for model partition
-    # NOTE: this requires multiple wvimg tiles to be partitioned, as we are using both tiles for areas with intersecting tiles
-    print('Tiling wvimg data for model partition')
-    trainAnchorsPath = os.path.join(project_path, 'downloads', site, 'trainShape', f'{site}_trainAnchors.csv')
-    for tif in [f for f in os.listdir(wvimgMergedPath) if f.endswith('.tif')]:
-        # only select tiles that have been cropped to the model partition
-        utils.tileRaster(pathToRaster=os.path.join(wvimgMergedPath, tif), outputPath=os.path.join(site_data_path, 'wvimg'), dataType = 'wvimg', anchors_csv=trainAnchorsPath)
-    print(f'Saved wvimg tiles to: {site_data_path}/wvimg/')
+        # merge wvimg (will take a while)
+        print('Merging wvimg tiles')
+        wvimgMergedPath = os.path.join(site_data_path, 'prewvimg')
+        print(f"wvimgMergedPath: {wvimgMergedPath}")
+        pathToWvimg = os.path.join(project_path, 'downloads', site, 'wvimgTrain')
+        os.makedirs(wvimgMergedPath, exist_ok=True)
+        utils.mergeTifs(pathToWvimg, wvimgMergedPath)
+        print(f'Saved merged wvimg tiles to {wvimgMergedPath}')
 
-    print('Tiling AlphaEarth embeddings')
-    # conditional if AE is being used
-    if getattr(args, 'use_ae', True):
-        # tile out non-PCA AlpahEarth
-        print("Tiling non-PCA AlphaEarth embeddings...")
-        tileAlphaEarth(
-            pathToRaster=str(source_raster),
-            outputPath=str(ae_tiles_path),
-            anchors_csv=trainAnchorsPath,
-            epsg=epsg,
-        )
+        #FIXME: There really should be a check to make sure that sites.json contains the correct EPSG code in main1.py so that this doesn't fail
+        # verify that wvimg is in correct crs
+        utils.checkCRS(wvimgMergedPath, epsg)
 
-        # iterate through each listed dimension specified in TARGET_DIMENSIONS
-        #for n_components in args.dims :
-        for n_components in TARGET_DIMENSIONS :
-            dim_ae_tiles_path = os.path.join(ae_tiles_path, f'{n_components}d')
-            dim_source_raster = os.path.join(dim_ae_tiles_path, f'ae_source_{n_components}d.tif')
+        # get wvimg metadata
+        print('Saving wvimg metadata')
+        metadataPath = os.path.join(project_path, 'downloads', site, 'metadata', 'DGTilesMetadata.json')
+        os.makedirs(os.path.dirname(metadataPath), exist_ok=True)
+        utils.saveWvimgMetadata(wvimgPath=pathToWvimg, savePath=metadataPath, prewvimgPath=wvimgMergedPath)
+        print(f'Saved metadata to: {metadataPath}')
 
-            # check if folder for current n_component exists
-            if not os.path.isfile(dim_source_raster):
-                raise FileNotFoundError(f"The source raster at: '{dim_source_raster}' does not exist.")
+        # generate sensor and solar tiles
+        print('Generating Sensor and Solar Tiles')
+        utils.generate_sensor_solar_tiles(metadata_json_path=metadataPath, output_directory=site_data_path)
+        print(f'Saved sensor and solar tiles to: {site_data_path}')
 
-            print(f"Tiling {n_components}-dimensional AlphaEarth embeddings...")
+        # tile out wvimg data for model partition
+        # NOTE: this requires multiple wvimg tiles to be partitioned, as we are using both tiles for areas with intersecting tiles
+        print('Tiling wvimg data for model partition')
+        trainAnchorsPath = os.path.join(project_path, 'downloads', site, 'trainShape', f'{site}_trainAnchors.csv')
+        for tif in [f for f in os.listdir(wvimgMergedPath) if f.endswith('.tif')]:
+            # only select tiles that have been cropped to the model partition
+            utils.tileRaster(pathToRaster=os.path.join(wvimgMergedPath, tif), outputPath=os.path.join(site_data_path, 'wvimg'), dataType = 'wvimg', anchors_csv=trainAnchorsPath)
+        print(f'Saved wvimg tiles to: {site_data_path}/wvimg/')
 
-            dim_bands = n_components
-            # tile out AlpahEarth
+
+        # conditional if AE is being used
+        if any("ae" in item for item in channels) :
+            # tile out non-PCA AlpahEarth
+            print("Tiling non-PCA AlphaEarth embeddings...")
             tileAlphaEarth(
-                pathToRaster=str(dim_source_raster),
-                outputPath=str(dim_ae_tiles_path),
+                pathToRaster=str(source_raster),
+                outputPath=str(ae_tiles_path),
                 anchors_csv=trainAnchorsPath,
                 epsg=epsg,
-                expected_bands=dim_bands
             )
-            # Validate tiles
-            tiles = glob.glob(os.path.join(dim_ae_tiles_path, "*.tif"))
-            print(f"Generated {len(tiles)} tiles")
-            with rasterio.open(tiles[0]) as src:
-                print(f"Tile: {src.count} bands, {src.dtypes[0]}, {src.width}x{src.height}, {src.res}")
 
-    print("Done tiling AlphaEarth embeddings")
+            # if we are using AE and PCA
+            if any("ae-" in item for item in channels) :
+                target_dims = get_pca_dims(channels)
 
-    # rename tiles to preserve associations between input tiles and sat/solar angle tiles
-    print('Renaming tiles')
-    utils.renameTiles(site_data_path)
-    print(f'Renamed input tiles, saved in {site_data_path}')
+                # iterate through each listed dimension specified in target_dims
+                for n_components in target_dims :
+                    dim_ae_tiles_path = os.path.join(ae_tiles_path, f'{n_components}d')
+                    dim_source_raster = os.path.join(dim_ae_tiles_path, f'ae_source_{n_components}d.tif')
 
-    # Clean up unnecessary dirs
-    shutil.rmtree(wvimgMergedPath, ignore_errors=True)
-    shutil.rmtree(os.path.join(site_data_path, 'dem_prenorm'), ignore_errors=True)
+                    # check if folder for current n_component exists
+                    if not os.path.isfile(dim_source_raster):
+                        raise FileNotFoundError(f"The source raster at: '{dim_source_raster}' does not exist.")
 
-    # Create lists to feed to models
-    print('Creating model lists')
-    utils.makeLists(site_data_path, site)
-    print(f'Created model lists, saved in {site_data_path}')
+                    print(f"Tiling {n_components}-dimensional AlphaEarth embeddings...")
+
+                    dim_bands = n_components
+                    # tile out AlpahEarth
+                    tileAlphaEarth(
+                        pathToRaster=str(dim_source_raster),
+                        outputPath=str(dim_ae_tiles_path),
+                        anchors_csv=trainAnchorsPath,
+                        epsg=epsg,
+                        expected_bands=dim_bands
+                    )
+                    # Validate tiles
+                    tiles = glob.glob(os.path.join(dim_ae_tiles_path, "*.tif"))
+                    print(f"Generated {len(tiles)} tiles")
+                    with rasterio.open(tiles[0]) as src:
+                        print(f"Tile: {src.count} bands, {src.dtypes[0]}, {src.width}x{src.height}, {src.res}")
+
+            print("Done tiling AlphaEarth embeddings")
+
+        # rename tiles to preserve associations between input tiles and sat/solar angle tiles
+        print('Renaming tiles')
+        utils.renameTiles(site_data_path)
+        print(f'Renamed input tiles, saved in {site_data_path}')
+
+        # Clean up unnecessary dirs
+        shutil.rmtree(wvimgMergedPath, ignore_errors=True)
+        shutil.rmtree(os.path.join(site_data_path, 'dem_prenorm'), ignore_errors=True)
+
+        # Create lists to feed to models
+        print('Creating model lists')
+        utils.makeLists(site_data_path, site)
+        print(f'Created model lists, saved in {site_data_path}')
 
 
 # Standard multiprocessing guard

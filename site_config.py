@@ -17,20 +17,20 @@ import os
 from pathlib import Path
 
 
-def load_config() :
+def load_config():
     # Find config.json in project directory
     script_dir = Path(__file__).resolve()
     project_dir = script_dir.parent
     config_json_path = project_dir / 'config.json'
 
-        if not config_json_path.exists():
-    raise FileNotFoundError(
-        f"sites.json not found at {sites_json_path}\n"
-        "Please create sites.json in the project root directory."
-    )
+    if not config_json_path.exists():
+        raise FileNotFoundError(
+            f"config.json not found at {config_json_path}\n"
+            "Please create config.json in the project root directory."
+        )
 
-    # Load sites.json
-    with open(sites_json_path, 'r') as f:
+    # Load config.json
+    with open(config_json_path, 'r') as f:
         config = json.load(f)
 
     config['project_dir'] = str(project_dir)
@@ -38,15 +38,15 @@ def load_config() :
     return config
 
 
-def load_global_vars() :
+def load_global_vars():
     config = load_config()
     project_dir = Path(config['project_dir'])
     global_vars = config.copy()
 
-    if global_vars['sites'] :
+    if 'sites' in global_vars:
         del global_vars['sites']
 
-    if global_vars['models'] :
+    if 'models' in global_vars:
         del global_vars['models']
 
     return global_vars
@@ -83,6 +83,15 @@ def load_site_config(site_code):
     # Add computed paths
     project_parent = project_dir.parent
     site['site'] = site_code
+    
+    # Add data_path (explicit if in config, computed if not)
+    if 'data_path' in site:
+        # Use explicit data_path from config
+        site['data_path'] = str(Path(site['data_path']))
+    else:
+        # Default: project_parent/{site}_data
+        site['data_path'] = str(project_parent / f'{site_code}_data')
+    
     site['inferenceShpPath'] = str(
         project_parent / 'downloads' / site_code / 'infShp' / config['inference_shape']
     )

@@ -11,6 +11,7 @@ import os
 import argparse
 import torch
 from dotenv import load_dotenv, find_dotenv
+from pathlib import Path
 
 # Optional: load .env if present (harmless if none exists)
 load_dotenv(find_dotenv())
@@ -18,7 +19,30 @@ load_dotenv(find_dotenv())
 code_version = 0.00123
 project_directory = os.getenv("project_directory")
 # Target dimensions for PCA reduction
-TARGET_DIMENSIONS = [4, 8, 16, 32, 64]
+TARGET_DIMENSIONS = [4, 8, 16, 32, 64]      # FIXME: to be removed
+
+
+# FIXME: idk if this should be duplicated here, imported from sites_config.py, or just make one centralized parsing file
+def load_config():
+    import json
+    # Find config.json in project directory
+    script_dir = Path(__file__).resolve()
+    project_dir = script_dir.parent.parent
+    config_json_path = project_dir / 'config.json'
+
+    if not config_json_path.exists():
+        raise FileNotFoundError(
+            f"config.json not found at {config_json_path}\n"
+            "Please create config.json in the project root directory."
+        )
+
+    # Load config.json
+    with open(config_json_path, 'r') as f:
+        config = json.load(f)
+
+    config['project_dir'] = str(project_dir)
+
+    return config
 
 
 def parse_args(argv=None):
@@ -30,6 +54,9 @@ def parse_args(argv=None):
     Accepts an optional `argv` list so callers can override defaults
     programmatically, e.g. parse_args(['--data_loc', '/my/data']).
     """
+
+    config = load_config()
+    channels_opt = config['channels']
 
     def str2bool(v):
         if isinstance(v, bool):
@@ -65,12 +92,15 @@ def parse_args(argv=None):
     parser.add_argument("--gradient_clip_val", default=1.0, type=float)
 
     # ALPHA EARTH
-    parser.add_argument("--use-ae", action="store_true")
-    parser.add_argument('--pca-dims', type=int, choices=TARGET_DIMENSIONS, default=None)
+    parser.add_argument("--use-ae", action="store_true")        # FIXME: to be removed
+    parser.add_argument('--pca-dims', type=int, choices=TARGET_DIMENSIONS, default=None)        # FIXME: to be removed
+
+    # MODEL CHANNELS
+    parser.add_argument("--channel", type=str, choices=channels_opt, default=None)
 
     # EVALUATION PARAMETERS
-    parser.add_argument("--eval-only", action="store_true")         # defaults to False. True when passed
-    parser.add_argument("--model-loc", default="", type=str)       # used alongside --eval-only to specify your model_loc
+    parser.add_argument("--eval-only", action="store_true")         # defaults to False. True when passed       # FIXME: to be removed
+    parser.add_argument("--model-loc", default=None, type=str)       # used alongside --eval-only to specify your model_loc
 
     # TESTING/RESTART PARAMETERS
     parser.add_argument("--num_model", default=0, type=int)
@@ -89,8 +119,8 @@ def parse_args(argv=None):
     parser.add_argument("--num_nodes", default=1, type=int)
     
     # SITE MANAGEMENT
-    parser.add_argument("--site", type=str, required=False,
-                       help='Site code (e.g., ws, lm, qm). Overrides .env file if provided.')
+    parser.add_argument("--sites", type=str, nargs='+', required=True,
+                       help='Site code(s) (e.g., fs_train fw_large qm)')
     parser.add_argument("--norm-const", type=float, default=46,
                        help='Normalization constant for CHM data (default: 46)')
 

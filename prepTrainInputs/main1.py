@@ -62,7 +62,6 @@ def main():
     parser = argparse.ArgumentParser(description='Prepare training data (step 1) for a list of sites')
     parser.add_argument('--sites', type=str, nargs='+', required=True,
                        help='Site code (e.g., ws, lm, qm). Overrides .env file if provided.')
-    #parser.add_argument('--use-ae', action="store_true")
     parser.add_argument('--channels', type=str, choices=default_channels, nargs='+', default=default_channels, required=False
                         help=f'Used within the pca process. Choices are specified in config.json')
     args = parser.parse_args()

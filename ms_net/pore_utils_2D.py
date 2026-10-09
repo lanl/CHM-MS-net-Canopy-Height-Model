@@ -437,6 +437,11 @@ def get_dataloader(net_dict, phases, data_path, NORM_CONST):
         dictionary that contains file paths for the data
     phases : list
         list of strings that specifies the phases to be loaded
+    data_path : dict or str
+        If dict: mapping of site codes to data directories (multi-site)
+        If str: single data path (backward compatible)
+    NORM_CONST : float
+        Normalization constant
 
     Returns
     _______
@@ -482,7 +487,7 @@ def get_dataloader(net_dict, phases, data_path, NORM_CONST):
     return dataloader
     
 
-def get_sample(net_dict, sample_name, phase, data_path, NORM_CONST):
+def get_sample(net_dict, sample_name, phase, data_paths, NORM_CONST):
     """
     Description
     ___________
@@ -494,6 +499,12 @@ def get_sample(net_dict, sample_name, phase, data_path, NORM_CONST):
         dictionary that contains file paths for the data
     sample_name : str
         name of the sample name
+    phase : str
+        phase name ('train', 'val', 'inf')
+    data_paths : dict or str
+        Data paths (dict for multi-site, str for single-site)
+    NORM_CONST : float
+        Normalization constant
 
     Returns
     _______
@@ -514,10 +525,10 @@ def get_sample(net_dict, sample_name, phase, data_path, NORM_CONST):
     # print(f'*net_dict: {net_dict}')
         
     if phase == 'inf':
-        tmp_dict =  [ load_samples( feat, sample_name, data_path, NORM_CONST) 
+        tmp_dict =  [ load_samples( feat, sample_name, data_paths, NORM_CONST) 
                         for feat in net_dict['x_array']]
     else:
-        tmp_dict =  [ load_samples( feat, sample_name, data_path, NORM_CONST) 
+        tmp_dict =  [ load_samples( feat, sample_name, data_paths, NORM_CONST) 
                         for feat in (net_dict["x_array"] + net_dict['y_array']) ]
     return [ get_downscaled_list(im_array,net_dict) for im_array in tmp_dict ]
  
@@ -631,62 +642,83 @@ def get_sum_stats(feat, net_dict, phase):
     return sum_stats( sample_list, remove_zeros=True )
 
 
-def load_samples(feat, sample_name, data_path, NORM_CONST): #, phasename): #, net_dict, xform = None):
+def load_samples(feat, sample_name, data_paths, NORM_CONST): #, phasename): #, net_dict, xform = None):
     """
-    Description
-    ___________
-
+    Load sample from appropriate site data directory.
+    
     Parameters
-    __________
-    feat: str
-        either mpf, edist or uz
-    sample_name: str
-        name of the sample
+    ----------
+    feat : str
+        Feature type ('wvimg', 'solar', 'sensor', 'dem', 'chm', 'ae', 'ae_N')
+    sample_name : str
+        Sample identifier - format: "site:filename.tif" for multi-site
+        or just "filename.tif" for single-site (backward compatible)
+    data_paths : dict or str
+        If dict: mapping of site codes to data directories
+        If str: single data path (backward compatible)
+    NORM_CONST : float
+        Normalization constant for CHM
 
     Returns
-    _______
-    sample : arr
-        array containing the preprocessed data for the specified feature and sampl
-
+    -------
+    sample : numpy array
+        Loaded and processed sample
     """
+    # Handle backward compatibility: convert single path to dict
+    if isinstance(data_paths, str):
+        data_paths = {'_single': data_paths}
+        site = '_single'
+        filename = sample_name
+    # Parse site prefix from sample name
+    elif ':' in sample_name:
+        site, filename = sample_name.split(':', 1)
+        if site not in data_paths:
+            raise ValueError(f"Site '{site}' not found in data_paths: {list(data_paths.keys())}")
+        data_path = data_paths[site]
+    else:
+        # single-site mode without prefix
+        if len(data_paths) == 1:
+            data_path = list(data_paths.values())[0]
+            filename = sample_name
+        else:
+            raise ValueError(
+                f"Multi-site mode requires site prefix in sample name: got '{sample_name}'"
+            )
+    
+    # Get the data path for this site
+    if isinstance(data_paths, dict):
+        data_path = data_paths.get(site, list(data_paths.values())[0])
+    else:
+        data_path = data_paths
+
     if feat == 'wvimg':
-        sample = plt.imread(os.path.join(data_path, 'wvimg', sample_name)) / 255
-        # sample = sample / 255
-        # sample = sample[:,:,0]
-        # print('wvimg shape is '+str(sample.shape))
-        #sample = np.pad(sample,(8,8),mode='edge')
+        sample = plt.imread(os.path.join(data_path, 'wvimg', filename)) / 255
     elif feat == 'dem':
-        sample = plt.imread(os.path.join(data_path, 'dem', sample_name)) / 255
-        # sample = sample[:,:,0]
-        # print('dem shape is '+str(sample.shape))
-        #sample = np.pad(sample,(8,8),mode='edge')   
+        sample = plt.imread(os.path.join(data_path, 'dem', filename)) / 255
     elif feat == 'solar':
-        sample = plt.imread(os.path.join(data_path, 'solar', sample_name[:16]+'.tif')) / 255
-        # print('solar shape is '+str(sample.shape))
-        #sample = np.pad(sample,(8,8),mode='edge')        
+        sample = plt.imread(os.path.join(data_path, 'solar', filename[:16]+'.tif')) / 255
     elif feat == 'sensor':
-        sample = plt.imread(os.path.join(data_path, 'sensor', sample_name[:16]+'.tif')) / 255
-        # print('sensor shape is '+str(sample.shape))
-        #sample = np.pad(sample,(8,8),mode='edge')    
+        sample = plt.imread(os.path.join(data_path, 'sensor', filename[:16]+'.tif')) / 255
     elif feat == 'chm':
-        # div by 35 as that is the approx height of the tallest tree in the dataset
-        sample = plt.imread(os.path.join(data_path, 'chm', sample_name))
+        # div by NORM_CONST as that is the approx height of the tallest tree in the dataset
+        sample = plt.imread(os.path.join(data_path, 'chm', filename))
         sample = sample[:,:,0] / NORM_CONST
         sample[sample<0] = 0
-        # print('chm shape is '+str(sample.shape))
     # AlphaEarth embeddings: 64-band GeoTIFF, int8 quantized
     # Must use rasterio (plt.imread fails on >4 bands)
-    elif feat == 'ae':
-        with rasterio.open(os.path.join(data_path, 'ae', sample_name)) as src:
-            sample = src.read().astype(np.float32)  # (64, H, W) — NO /255
-        sample = transform_ae_sample(sample)
-    # get our pca-specific data_paths
-    elif match := re.match(r"^ae_(\d+)$", feat):
-        dim = match.group(1)
-        pca_data_path = os.path.join(data_path, 'ae', f'{dim}d', sample_name)
-        with rasterio.open(pca_data_path) as src:
-            sample = src.read().astype(np.float32)  # (dim, H, W) — NO /255
-        sample = transform_ae_sample(sample)
+    elif feat.startswith('ae'):
+        # Handle AlphaEarth embeddings (both 'ae' and 'ae_N' formats)
+        if feat == 'ae':
+            ae_path = os.path.join(data_path, 'ae', '64d', filename)
+        else:
+            # Extract dimension from 'ae_X' -> 'Xd'
+            dim = feat.split('_')[1]
+            ae_path = os.path.join(data_path, 'ae', f'{dim}d', filename)
+        
+        with rasterio.open(ae_path) as src:
+            sample = src.read()  # Shape: (channels, H, W)
+            # Apply normalization
+            sample = (sample + AE_SHIFT) * AE_SCALE
         
     else:
         print(f'feat: {feat}')

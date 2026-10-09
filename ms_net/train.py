@@ -43,44 +43,104 @@ def setup_environment():
     site = os.getenv('site')
     return directory, site
 
-def setup_params(directory, site):
+def setup_params(sites):
     """
-    Description
-    ___________
-    This sets up the parameters for the argument parser and documents the training and validation lists.
-
+    Setup parameters for multiple sites.
+    
     Parameters
-    _______
-    directory : str
-        path to project directory
-    site : str
-        site being processed
-
+    ----------
+    sites : list of str
+        List of site codes (e.g., ['fs_train', 'fw_large', 'qm'])
+    
     Returns
-    ______
+    -------
     params : namespace
-        this contains specific arguments for the neural network
+        Parameters including multi-site data path mapping
     """
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    try:
+        from site_config import load_site_config
+    finally:
+        sys.path.pop(0)
+    
     params = parse_args()
-    params.train_list = os.path.join(directory, f'{site}_trainlist.txt')
-    params.val_list = os.path.join(directory, f'{site}_vallist.txt')
-    # Conditional inclusion of AlphaEarth embeddings (opt‑in)
-    if getattr(params, 'use_ae', False) :
+    
+    # Store sites list
+    params.sites = sites
+    
+    # Build data path mapping for each site
+    params.data_paths = {}
+    for site in sites:
+        site_config = load_site_config(site)
+        site_data_path = site_config['data_path']
+        
+        if not os.path.exists(site_data_path):
+            raise ValueError(
+                f"Data directory for site '{site}' not found: {site_data_path}\n"
+                f"Run prepTrainInputs/main2.py for this site first."
+            )
+        params.data_paths[site] = site_data_path
+    
+    # Build in-memory combined trainlist/vallist (no file saved)
+    params.train_samples = []
+    params.val_samples = []
+    
+    for site in sites:
+        site_train_list = os.path.join(params.data_paths[site], f'{site}_trainlist.txt')
+        site_val_list = os.path.join(params.data_paths[site], f'{site}_vallist.txt')
+        
+        if not os.path.exists(site_train_list):
+            raise ValueError(
+                f"Training list not found for site '{site}': {site_train_list}\n"
+                f"Run prepTrainInputs/main2.py for this site first."
+            )
+        
+        # Read and prefix with site code
+        with open(site_train_list, 'r') as f:
+            site_train_samples = [f"{site}:{line.strip()}" for line in f if line.strip()]
+            params.train_samples.extend(site_train_samples)
+        
+        with open(site_val_list, 'r') as f:
+            site_val_samples = [f"{site}:{line.strip()}" for line in f if line.strip()]
+            params.val_samples.extend(site_val_samples)
+    
+    print(f"✓ Loaded {len(params.train_samples)} training samples from {len(sites)} site(s)")
+    print(f"✓ Loaded {len(params.val_samples)} validation samples from {len(sites)} site(s)")
+    
+    # Create temporary list files for backward compatibility with get_dataloader
+    # (These will be read by return_fields in pore_utils_2D.py)
+    import tempfile
+    tmpdir = tempfile.mkdtemp(prefix='msnet_multisite_')
+    
+    params.train_list = os.path.join(tmpdir, 'combined_trainlist.txt')
+    params.val_list = os.path.join(tmpdir, 'combined_vallist.txt')
+    
+    with open(params.train_list, 'w') as f:
+        f.write('\n'.join(params.train_samples))
+    
+    with open(params.val_list, 'w') as f:
+        f.write('\n'.join(params.val_samples))
+    
+    # Set x_array based on --use-ae and --pca-dims (as before)
+    if getattr(params, 'use_ae', False):
         if getattr(params, 'pca_dims', None) is None:
             params.x_array = ['wvimg', 'solar', 'sensor', 'dem', 'ae']
-        else :
+        else:
             ae_dims = f'ae_{params.pca_dims}'
             params.x_array = ['wvimg', 'solar', 'sensor', 'dem', ae_dims]
     else:
         if getattr(params, 'pca_dims', None) is not None:
             warnings.warn("--pca-dims must only be specified alongside --use-ae.\nUsing non-ae dims...")
         params.x_array = ['wvimg', 'solar', 'sensor', 'dem']
+    
     params.y_array = ['chm']
     params.x_xform = [None] * len(params.x_array)
     params.y_xform = [None]
     params.c_xform = [None]
-    #params.model_loc = 'chks'
+    
     return params
+
 
 def setup_net_dict(params):
     """
@@ -411,82 +471,97 @@ def setup_trainer(params, site, net_dict=None, new_model=False):
         log_every_n_steps=10,
     )
 
-def train_main(data_path, NORM_CONST, site):
+def train_main(sites, NORM_CONST):
     """
-    Main training function.
+    Main training function supporting multiple sites.
     
     Parameters
-    __________
-    data_path : str
-        path to training data
+    ----------
+    sites : list of str
+        List of site codes to train on
     NORM_CONST : float
-        normalization constant for CHM
-    site : str
-        site code for site-specific model saving
+        Normalization constant for CHM
     """
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    try:
+        from prepTrainInputs.utils import order_sites
+    finally:
+        sys.path.pop(0)
+    
     directory, env_site = setup_environment()
-    params = setup_params(data_path, site)
+    params = setup_params(sites)
     net_dict = setup_net_dict(params)
     model, new_model = load_or_create_model(params, net_dict)
     print(f"new_model: {new_model}")
-    # print(f'net_dict: {net_dict}')
-
+    
+    # Determine model name for logging
+    if len(sites) == 1:
+        model_name = sites[0]
+    else:
+        # Multi-site model naming
+        model_name = order_sites(sites)
+        model_name = f"multisite_{model_name}"
+    
     # only create trainer when we are training a model
-    if not params.eval_only :
+    if not params.eval_only:
         print("\nLoading training and validation samples...\n")
-        train_dataloader = get_dataloader(net_dict, ['train'], data_path=data_path, NORM_CONST=NORM_CONST)
-        val_dataloader = get_dataloader(net_dict, ['val'], data_path=data_path, NORM_CONST=NORM_CONST)
+        train_dataloader = get_dataloader(net_dict, ['train'], data_path=params.data_paths, NORM_CONST=NORM_CONST)
+        val_dataloader = get_dataloader(net_dict, ['val'], data_path=params.data_paths, NORM_CONST=NORM_CONST)
         trainer = setup_trainer(
             params,
-            site,                   # Pass site to setup_trainer
-            net_dict=net_dict,      # pass dictrionary for writing hparams.yaml
+            model_name,             # Use combined name for multi-site
+            net_dict=net_dict,      # pass dictionary for writing hparams.yaml
             new_model=new_model     # pass whether this is a new model or not
         )
         try:
             trainer.fit(model, train_dataloader, val_dataloader['val'])
         except KeyboardInterrupt:
             print("\nTraining stopped by user (Ctrl+C).")
-    else :
+    else:
         print("\nLoading only validation samples...\n")
-        val_dataloader = get_dataloader(net_dict, ['val'], data_path=data_path, NORM_CONST=NORM_CONST)        
-
-    
+        val_dataloader = get_dataloader(net_dict, ['val'], data_path=params.data_paths, NORM_CONST=NORM_CONST)
     
     evaluate_validation_model(
         model=model,
         val_dataloader=val_dataloader['val'],
         norm_const=NORM_CONST,
         plot_sample=True,
-        data_point_index=0,                     # change to view a different data point
-        save_plot="validation_comparison_0_best_train_ae.png"
+        data_point_index=0,
+        save_plot=f"validation_comparison_{model_name}.png"
     )
-    
+
 def main():
     # freeze_support()
-    # Parse arguments using ms_parser (includes --site flag)
+    # Parse arguments using ms_parser (includes --sites flag)
     params = parse_args()
     
-    # Get site from command line or fall back to .env
-    if params.site:
-        site = params.site
-        print(f"Using site from command line: {site}")
-    else:
-        site = os.getenv('site')
-        if not site:
-            raise ValueError("Site must be specified via --site flag or in .env file")
-        print(f"Using site from .env file: {site}")
+    # Get sites from command line (now required)
+    sites = params.sites
+    print(f"Training on site(s): {', '.join(sites)}")
+    
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    try:
+        from site_config import load_site_config
+    finally:
+        sys.path.pop(0)
     
     # Validate that site data exists
-    data_path = os.path.abspath(os.path.join(os.getcwd(), '..', '..', f'{site}_data'))
-    if not os.path.exists(data_path):
-        raise ValueError(f"Data directory not found: {data_path}\n"
-                        f"Run data preparation for site '{site}' first.")
-    
-    print(f"Data directory found: {data_path}")
+    for site in sites:
+        site_config = load_site_config(site)
+        data_path = site_config['data_path']
+        if not os.path.exists(data_path):
+            raise ValueError(
+                f"Data directory not found for site '{site}': {data_path}\n"
+                f"Run data preparation for this site first."
+            )
+        print(f"  ✓ Site '{site}' data directory: {data_path}")
     
     # Use norm_const from params (with underscore, not hyphen)
     NORM_CONST = getattr(params, 'norm_const', 46)
-    train_main(data_path=data_path, NORM_CONST=NORM_CONST, site=site)
+    train_main(sites=sites, NORM_CONST=NORM_CONST)
+
     
 if __name__ == '__main__':
     main()

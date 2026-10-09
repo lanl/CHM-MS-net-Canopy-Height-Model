@@ -3139,26 +3139,25 @@ def scale_tif(
     print("=" * 60)
     
 
-def order_sites(sites) :
+def order_sites(sites):
     """
-        Order sites in alphabetical order, returns a string of combined site names
+    Order sites in alphabetical order, returns a string of combined site names
 
-        sites : array
+    Parameters
+    ----------
+    sites : list
+        List of site codes
+
+    Returns
+    -------
+    str
+        Underscore-separated site names in alphabetical order
     """
-    
     sites_ordered = sorted(sites, key=str.lower)
-    sites_ref = ""
-    for site in sites_ordered :
-        if sites_ordered.index(site) == 0 :
-            sites_ref = site
-        else :
-
-        sites_ref = str.join(sites_ref, "_", site)
-    
-    return sites_ref
+    return "_".join(sites_ordered)
 
 
-def get_pca_dims(channels) :
+def get_pca_dims(channels):
 
     pca_dims = []
 
