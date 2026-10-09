@@ -338,7 +338,7 @@ def transform_ae_raster(
     input_raster: str,
     pca: PCA,
     output_raster: str,
-    chunk_size: int = 1000
+    chunk_size: int = DEFAULT_CHUNK_SIZE
 ) -> None:
     """
     Transform full AE raster using fitted PCA, processing in memory-efficient chunks.
@@ -532,7 +532,7 @@ def reduce_ae_dimensions(
     site_name: str,
     target_dims: List[int] = None,
     sample_size: int = DEFAULT_SAMPLE_SIZE,
-    chunk_size: int = 1000,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
     validate: bool = True,
     seed: int = 42
 ) -> Dict[int, Dict]:
@@ -620,6 +620,11 @@ def reduce_ae_dimensions(
         model_path, metadata_path = save_pca_model(
             pca, model_dir, n_components, metadata
         )
+
+        # # override pca dir with custom path
+        # custom_pca_dir = "/project/wildfirehydro/ltiede/CHM_2/fs_train_ae_data/ae/pca_models"
+        # curr_pca = os.path.join(custom_pca_dir, f"pca_{n_components}d.pkl")
+        # pca, metadata = load_pca_model(os.fspath(curr_pca))
         
         # Transform raster
         print(f"\n[4/4] Transforming raster...")
@@ -698,6 +703,7 @@ Examples:
         """
     )
     
+    # FIXME: eventually may remove this independent file functionality
     parser.add_argument(
         '--input',
         required=False,

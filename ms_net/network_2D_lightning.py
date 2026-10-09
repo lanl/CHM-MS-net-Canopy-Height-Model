@@ -346,8 +346,7 @@ class MS_Net(LightningModule):
         """
         
         assert x_list[0].shape[1] == self.feats, \
-        f'The number of features provided {x_list[0].shape[1]} \
-            does not match with the input size {self.feats}'
+        f'The number of features provided {x_list[0].shape[1]} does not match with the input size {self.feats}'
         # carries out the first prediction (pass through the coarsest model)
         y = [ self.models[0]( x_list[0] ) ]
         for scale,[ model,x ] in enumerate(zip( self.models[1:],x_list[1:] )):

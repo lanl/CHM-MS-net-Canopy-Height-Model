@@ -43,16 +43,6 @@ SOURCECOOP_HTTPS_PREFIX = "https://data.source.coop"
 SOURCECOOP_DEFAULT_CACHE = Path.home() / ".cache" / "satchm" / "alphaearth"
 SOURCECOOP_NODATA = -128
 
-# ────────────────────────────────────────────────────────────────────
-# Logging
-# ────────────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger = logging.getLogger(__name__)
-
 
 # ────────────────────────────────────────────────────────────────────
 # Spatial chunking helper functions
@@ -178,7 +168,7 @@ def _download_chunk(chunk_id, chunk_bounds, ae_image, epsg, scale, temp_dir):
     
     # Check if GEE returned a ZIP archive (common behavior)
     if zipfile.is_zipfile(chunk_path):
-        logger.info(f"Chunk {chunk_id} is a ZIP archive, extracting...")
+        print(f"Chunk {chunk_id} is a ZIP archive, extracting...")
         
         # Extract the TIFF from the ZIP
         with zipfile.ZipFile(chunk_path, 'r') as zip_ref:
@@ -189,7 +179,7 @@ def _download_chunk(chunk_id, chunk_bounds, ae_image, epsg, scale, temp_dir):
                 raise RuntimeError(f"No TIFF file found in ZIP for chunk {chunk_id}")
             
             if len(tif_files) > 1:
-                logger.warning(f"Multiple TIFFs in ZIP, using first: {tif_files[0]}")
+                print(f"Multiple TIFFs in ZIP, using first: {tif_files[0]}")
             
             # Extract to temp directory
             extracted_name = zip_ref.extract(tif_files[0], temp_dir)
@@ -200,12 +190,12 @@ def _download_chunk(chunk_id, chunk_bounds, ae_image, epsg, scale, temp_dir):
             chunk_path.rename(zip_backup)  # Keep ZIP as .zip
             extracted_path.rename(chunk_path)  # Rename extracted to .tif
             
-            logger.info(f"✓ Extracted TIFF from ZIP for chunk {chunk_id}")
+            print(f"✓ Extracted TIFF from ZIP for chunk {chunk_id}")
     
     # Convert float64 to int8 if needed (GEE exports as float64)
     with rasterio.open(chunk_path) as src:
         if src.dtypes[0] == 'float64':
-            logger.info(f"Converting chunk {chunk_id} from float64 to int8...")
+            print(f"Converting chunk {chunk_id} from float64 to int8...")
             
             # Read all bands
             data = src.read()
@@ -227,7 +217,7 @@ def _download_chunk(chunk_id, chunk_bounds, ae_image, epsg, scale, temp_dir):
             chunk_path.unlink()
             temp_converted.rename(chunk_path)
             
-            logger.info(f"✓ Converted chunk {chunk_id} to int8")
+            print(f"✓ Converted chunk {chunk_id} to int8")
     
     # Validate chunk
     with rasterio.open(chunk_path) as src:
@@ -240,7 +230,7 @@ def _download_chunk(chunk_id, chunk_bounds, ae_image, epsg, scale, temp_dir):
                 f"Chunk {chunk_id} has wrong dtype: expected int8, got {src.dtypes[0]}"
             )
         chunk_size_mb = chunk_path.stat().st_size / (1024 * 1024)
-        logger.info(f"✓ Downloaded chunk {chunk_id} ({chunk_size_mb:.1f} MB)")
+        print(f"✓ Downloaded chunk {chunk_id} ({chunk_size_mb:.1f} MB)")
     
     return str(chunk_path)
 
@@ -284,7 +274,7 @@ def _merge_chunks(chunk_files, output_path, epsg):
             for band_idx, band_name in enumerate(AE_BAND_NAMES, start=1):
                 dest.set_band_description(band_idx, band_name)
         
-        logger.info(f"✓ Merged {len(chunk_files)} chunks into {output_path}")
+        print(f"✓ Merged {len(chunk_files)} chunks into {output_path}")
     
     finally:
         # Close all source files
@@ -336,7 +326,7 @@ def _load_sourcecoop_index(cache_dir=None) -> gpd.GeoDataFrame:
 
     if not cache_path.exists():
         temporary_path = cache_path.with_suffix(".parquet.tmp")
-        logger.info("Downloading source.coop AlphaEarth index to %s", cache_path)
+        print("Downloading source.coop AlphaEarth index to %s", cache_path)
         try:
             with requests.get(SOURCECOOP_INDEX_URL, stream=True, timeout=120) as response:
                 response.raise_for_status()
@@ -349,7 +339,7 @@ def _load_sourcecoop_index(cache_dir=None) -> gpd.GeoDataFrame:
             temporary_path.unlink(missing_ok=True)
             raise
     else:
-        logger.info("Using cached source.coop AlphaEarth index: %s", cache_path)
+        print("Using cached source.coop AlphaEarth index: %s", cache_path)
 
     try:
         index = gpd.read_parquet(cache_path)
@@ -454,7 +444,7 @@ def fetch_alphaEarth_sourcecoop(
     if year_tiles.empty:
         raise RuntimeError(f"No source.coop AlphaEarth tiles overlap the AOI for {year}")
 
-    logger.info("Reading %d source.coop AlphaEarth tile(s) for %d", len(year_tiles), year)
+    print(f"Reading {len(year_tiles)} source.coop AlphaEarth tile(s) for {year}")
     target_crs = CRS.from_epsg(int(epsg))
     sources = []
     source_temp_dir = tempfile.TemporaryDirectory(prefix="sourcecoop_vrt_")
@@ -512,7 +502,7 @@ def fetch_alphaEarth_sourcecoop(
             raise RuntimeError("Source.coop output did not have the expected 64-band int8 format")
         if output.crs.to_epsg() != int(epsg):
             raise RuntimeError(f"Expected EPSG:{epsg}, got {output.crs}")
-    logger.info("Saved source.coop AlphaEarth raster: %s", save_path)
+    print("Saved source.coop AlphaEarth raster: %s", save_path)
     return str(save_path)
 
 
@@ -570,30 +560,10 @@ def fetch_alphaEarth_gee(
     if not sa_key_path.exists():
         raise FileNotFoundError(f"GEE service account key not found: {sa_key_path}")
     
-    # if not (VALID_YEAR_RANGE[0] <= year <= VALID_YEAR_RANGE[1]):
-    #     raise ValueError(
-    #         f"alphaEarthYear must be {VALID_YEAR_RANGE[0]}-{VALID_YEAR_RANGE[1]}, got {year}"
-    #     )
-    
-    if year > VALID_YEAR_RANGE[1]:
-        raise ValueError(
-            f"alphaEarthYear must be {VALID_YEAR_RANGE[0]}-{VALID_YEAR_RANGE[1]}, got {year}"
-        )
-    
-    if year < VALID_YEAR_RANGE[0] :     # 2017
-        warnings.warn(
-            f"alphaEarthYear must be {VALID_YEAR_RANGE[0]}-{VALID_YEAR_RANGE[1]}, got {year}",
-            category=UserWarning,
-            stacklevel=2
-        )
-        year = VALID_YEAR_RANGE[0]      # earliest year AE provides
-    
-    year = int(year)        # ensure type int for GEE
-    
     save_path.parent.mkdir(parents=True, exist_ok=True)
     
     # Initialize Earth Engine
-    logger.info("Initializing Earth Engine...")
+    print("Initializing Earth Engine...")
     try:
         with open(sa_key_path) as f:
             key_data = json.load(f)
@@ -603,7 +573,7 @@ def fetch_alphaEarth_gee(
             str(sa_key_path)
         )
         ee.Initialize(credentials, project=project)
-        logger.info(f"✓ Earth Engine initialized (project: {project})")
+        print(f"✓ Earth Engine initialized (project: {project})")
         
     except ee.EEException as e:
         if "USER_PROJECT_DENIED" in str(e):
@@ -616,7 +586,7 @@ def fetch_alphaEarth_gee(
         raise
     
     # Load AOI and apply buffer
-    logger.info(f"Loading AOI from {geojson_path}...")
+    print(f"Loading AOI from {geojson_path}...")
     gdf = gpd.read_file(geojson_path)
     
     if gdf.empty:
@@ -678,10 +648,10 @@ def fetch_alphaEarth_gee(
         geodesic=False
     )
 
-    logger.info(f"AOI bounds (UTM): {minx}, {miny}, {maxx}, {maxy} (buffered {buffer_m}m)")
+    print(f"AOI bounds (UTM): {minx}, {miny}, {maxx}, {maxy} (buffered {buffer_m}m)")
     
     # Fetch AlphaEarth image from GEE
-    logger.info(f"Fetching AlphaEarth embeddings for year {year}...")
+    print(f"Fetching AlphaEarth embeddings for year {year}...")
     
     collection = ee.ImageCollection("GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL")
     
@@ -704,7 +674,7 @@ def fetch_alphaEarth_gee(
     
     if actual_request_mb > SAFETY_MARGIN_MB:
         # Use spatial chunking to stay under limit
-        logger.info(
+        print(
             f"Request size ({actual_request_mb:.1f} MB) exceeds safety margin ({SAFETY_MARGIN_MB} MB). "
             "Using chunked download..."
         )
@@ -731,7 +701,7 @@ def fetch_alphaEarth_gee(
             chunk_files = []
             
             for chunk_id, cx_min, cy_min, cx_max, cy_max in chunks:
-                logger.info(f"Downloading chunk {chunk_id + 1}/{total_chunks}...")
+                print(f"Downloading chunk {chunk_id + 1}/{total_chunks}...")
                 chunk_path = _download_chunk(
                     chunk_id, (cx_min, cy_min, cx_max, cy_max),
                     ae_image, epsg, scale, str(chunk_temp_dir)
@@ -739,17 +709,17 @@ def fetch_alphaEarth_gee(
                 chunk_files.append(chunk_path)
             
             # Merge chunks
-            logger.info("Merging chunks...")
+            print("Merging chunks...")
             _merge_chunks(chunk_files, save_path, epsg)
             
         finally:
             # Clean up temp directory
             shutil.rmtree(chunk_temp_dir, ignore_errors=True)
-            logger.info("✓ Cleaned up temporary files")
+            print("✓ Cleaned up temporary files")
     
     else:
         # Direct download (existing code path)
-        logger.info(
+        print(
             f"Request size ({actual_request_mb:.1f} MB) is within limit. "
             "Using direct download..."
         )
@@ -765,14 +735,14 @@ def fetch_alphaEarth_gee(
             "filePerBand": False,
         }
         
-        logger.info(f"Requesting download URL from GEE (scale={scale}m, crs=EPSG:{epsg})...")
+        print(f"Requesting download URL from GEE (scale={scale}m, crs=EPSG:{epsg})...")
         
         try:
             url = ae_image.getDownloadURL(export_params)
         except ee.EEException as e:
             raise RuntimeError(f"GEE export failed: {e}") from e
         
-        logger.info("Downloading...")
+        print("Downloading...")
         response = requests.get(url, stream=True, timeout=600)
         
         if response.status_code != 200:
@@ -785,11 +755,11 @@ def fetch_alphaEarth_gee(
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
         
-        logger.info(f"✓ Downloaded to {save_path}")
+        print(f"✓ Downloaded to {save_path}")
         
         # Check if GEE returned a ZIP archive (common behavior for direct downloads)
         if zipfile.is_zipfile(save_path):
-            logger.info("Downloaded file is a ZIP archive, extracting...")
+            print("Downloaded file is a ZIP archive, extracting...")
             
             # Extract the TIFF from the ZIP
             temp_extract_dir = save_path.parent / "temp_extract"
@@ -804,7 +774,7 @@ def fetch_alphaEarth_gee(
                         raise RuntimeError("No TIFF file found in ZIP archive")
                     
                     if len(tif_files) > 1:
-                        logger.warning(f"Multiple TIFFs in ZIP, using first: {tif_files[0]}")
+                        print(f"Multiple TIFFs in ZIP, using first: {tif_files[0]}")
                     
                     # Extract to temp directory
                     extracted_name = zip_ref.extract(tif_files[0], temp_extract_dir)
@@ -819,7 +789,7 @@ def fetch_alphaEarth_gee(
                     save_path.rename(zip_backup)  # Keep ZIP as .zip backup
                     extracted_path.rename(save_path)  # Move extracted to final location
                     
-                    logger.info("✓ Extracted TIFF from ZIP archive")
+                    print("✓ Extracted TIFF from ZIP archive")
             finally:
                 # Clean up temp directory
                 shutil.rmtree(temp_extract_dir, ignore_errors=True)
@@ -827,7 +797,7 @@ def fetch_alphaEarth_gee(
         # Convert float64 to int8 if needed (GEE exports as float64)
         with rasterio.open(save_path) as src:
             if src.dtypes[0] == 'float64':
-                logger.info("Converting from float64 to int8...")
+                print("Converting from float64 to int8...")
                 
                 # Read all bands
                 data = src.read()
@@ -849,7 +819,7 @@ def fetch_alphaEarth_gee(
                 save_path.unlink()
                 temp_converted.rename(save_path)
                 
-                logger.info("✓ Converted to int8")
+                print("✓ Converted to int8")
     
     # Post-validate
     with rasterio.open(save_path) as src:
@@ -869,7 +839,7 @@ def fetch_alphaEarth_gee(
             )
         
         file_size_mb = save_path.stat().st_size / (1024 * 1024)
-        logger.info(
+        print(
             f"✓ Validated: {AE_BANDS} bands, int8, EPSG:{epsg}, "
             f"{src.width}*{src.height} pixels, {file_size_mb:.1f} MB"
         )
@@ -936,7 +906,7 @@ def fetch_alphaEarth(
     year = int(year)
     
     if year == VALID_YEAR_RANGE[0]:
-        logger.info("Fetching AlphaEarth embeddings for year %d via GEE", year)
+        print("Fetching AlphaEarth embeddings for year %d via GEE", year)
         return fetch_alphaEarth_gee(
             geojson_path=geojson_path,
             save_path=save_path,
@@ -949,7 +919,7 @@ def fetch_alphaEarth(
             temp_dir=temp_dir,
         )
 
-    logger.info("Fetching AlphaEarth embeddings for year %d via source.coop", year)
+    print("Fetching AlphaEarth embeddings for year %d via source.coop", year)
     return fetch_alphaEarth_sourcecoop(
         geojson_path=geojson_path,
         save_path=save_path,

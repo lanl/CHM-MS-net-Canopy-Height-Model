@@ -32,14 +32,6 @@ def main() :
     parser.add_argument('--site', type=str, required=False,
                     help='Site code (e.g., ws, lm, qm). Overrides .env file if provided.')
     parser.add_argument('--use-ae', action="store_true")
-    # parser.add_argument(
-    #     '--dims',
-    #     type=int,
-    #     nargs='+',
-    #     choices=TARGET_DIMENSIONS,
-    #     default=TARGET_DIMENSIONS,
-    #     help=f'Target dimensions (default: {TARGET_DIMENSIONS})'
-    # )
     args = parser.parse_args()
 
     # Load env variables
@@ -128,7 +120,16 @@ def main() :
 
     print('Tiling AlphaEarth embeddings')
     # conditional if AE is being used
-    if getattr(args, 'use_ae', True):            
+    if getattr(args, 'use_ae', True):
+        # tile out non-PCA AlpahEarth
+        print("Tiling non-PCA AlphaEarth embeddings...")
+        tileAlphaEarth(
+            pathToRaster=str(source_raster),
+            outputPath=str(ae_tiles_path),
+            anchors_csv=trainAnchorsPath,
+            epsg=epsg,
+        )
+
         # iterate through each listed dimension specified in TARGET_DIMENSIONS
         #for n_components in args.dims :
         for n_components in TARGET_DIMENSIONS :

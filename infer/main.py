@@ -31,9 +31,6 @@ finally:
 
 # Target dimensions for PCA reduction
 TARGET_DIMENSIONS = [4, 8, 16, 32, 64]
-# Sampling parameters
-DEFAULT_SAMPLE_SIZE = 100000  # 100k pixels for stable covariance estimation
-DEFAULT_CHUNK_SIZE = 1000
 
 def main() :
     
@@ -310,6 +307,7 @@ def main() :
                 print(f"Inferring with pca_dims AE channels: {args.pca_dims}")
             
                 output_dir = Path(source_raster).parent
+                #pca_dims = utils.get_pca_dims(channels)
                 
                 # call PCA for all default dimensions
                 results = reduce_ae_dimensions(
@@ -317,10 +315,7 @@ def main() :
                     output_dir=str(output_dir),
                     site_name=site,
                     target_dims=args.pca_dims,
-                    sample_size=DEFAULT_SAMPLE_SIZE,
-                    chunk_size=DEFAULT_CHUNK_SIZE,
                     validate=False,
-                    seed=args.seed
                 )
 
                 dim_ae_tiles_path = os.path.join(ae_tiles_path, f'{args.pca_dims}d')

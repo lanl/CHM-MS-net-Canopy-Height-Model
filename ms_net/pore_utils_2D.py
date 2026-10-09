@@ -418,9 +418,11 @@ def return_fields(net_dict, phase):
     
     """
     data_file   = net_dict[f'{phase}_list']
-    dataframe   = pd.read_csv(data_file, header=None)
+    try :
+        dataframe   = pd.read_csv(data_file, header=None)
+    except EmptyDataError as e :
+        raise ValueError(f"Data loading failed. '{data_file}' is empty.\nEnsure size of set intersection is not 0 after data preprocessing.") from e
     samples     = dataframe.values.reshape(len(dataframe)).tolist()
-                   
     return samples
 
 def get_dataloader(net_dict, phases, data_path, NORM_CONST):

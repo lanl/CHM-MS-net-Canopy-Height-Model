@@ -341,27 +341,9 @@ def evaluate_validation_model(
     
     print(buffer.getvalue())
     
-    with open("model_metrics.txt", "w", encoding="utf-8") as file :
+    with open("model_metrics_0_best_train_ae.txt", "w", encoding="utf-8") as file :
         file.write(buffer.getvalue())
 
     buffer.close()
     
-    # print("\n" + "=" * 60)
-    # print("VALIDATION MODEL STATISTICS")
-    # print("=" * 60)
-    # print(f"Pixels evaluated:       {len(observed):,}")
-    # print(f"MSE:                    {mse:.4f} m²")
-    # print(f"RMSE:                   {rmse:.4f} m")
-    # print(f"MAE:                    {mae:.4f} m")
-    # print(f"Mean signed error:      {mean_signed_error:.4f} m")
-    # print(f"Std. signed error:      {std_signed_error:.4f} m")
-    # print(f"R²:                     {r2:.4f}")
-    # print("\nObserved:")
-    # print(f"  Mean:                 {observed_mean:.4f} m")
-    # print(f"  Std:                  {observed_std:.4f} m")
-    # print("\nPredicted:")
-    # print(f"  Mean:                 {predicted_mean:.4f} m")
-    # print(f"  Std:                  {predicted_std:.4f} m")
-    # print("=" * 60)
-
     return stats
