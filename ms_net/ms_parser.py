@@ -96,7 +96,7 @@ def parse_args(argv=None):
     parser.add_argument('--pca-dims', type=int, choices=TARGET_DIMENSIONS, default=None)        # FIXME: to be removed
 
     # MODEL CHANNELS
-    parser.add_argument("--channel", type=str, choices=channels_opt, default=None)
+    parser.add_argument("--channel", type=str, choices=channels_opt, default=None, required=True)
 
     # EVALUATION PARAMETERS
     parser.add_argument("--eval-only", action="store_true")         # defaults to False. True when passed       # FIXME: to be removed

@@ -397,58 +397,69 @@ def movedata(data, device):
     return [elem.to(device) if type(elem)==torch.Tensor else 
         movedata(elem, device) if type(elem)==list else elem for elem in data]
 
-def return_fields(net_dict, phase):
+def return_fields(phase, train_samples=None, val_samples=None):
     """
-    Description
-    ___________
-    This function reads the data file from the net_dict and returns a list of samples
-
+    Return the appropriate sample list for the given phase.
+    
     Parameters
-    __________
-    net_dict : dict
-        dictionary that contains file paths for the data
+    ----------
     phase : str
-        specifies the data that is loaded
-
+        Phase identifier ('train', 'val', or 'inf')
+    train_samples : list of str, optional
+        Training sample list
+    val_samples : list of str, optional
+        Validation sample list
+    
     Returns
-    _______
-    samples : list
-        list of samples
+    -------
+    samples : list of str
+        Sample list for the requested phase
     
+    Raises
+    ------
+    ValueError
+        If phase is unknown or required sample list is None
+    """
+    if phase == 'train':
+        if train_samples is None:
+            raise ValueError("train_samples must be provided for phase='train'")
+        return train_samples
+    elif phase == 'val':
+        if val_samples is None:
+            raise ValueError("val_samples must be provided for phase='val'")
+        return val_samples
+    elif phase == 'inf':
+        # Inference phase uses validation samples
+        if val_samples is None:
+            raise ValueError("val_samples must be provided for phase='inf'")
+        return val_samples
+    else:
+        raise ValueError(f"Unknown phase: '{phase}'. Expected 'train', 'val', or 'inf'")
+
+def get_dataloader(net_dict, phases, data_path, NORM_CONST, train_samples=None, val_samples=None):
+    """
+    Create dataloader objects for the specified phases.
     
-    """
-    data_file   = net_dict[f'{phase}_list']
-    try :
-        dataframe   = pd.read_csv(data_file, header=None)
-    except EmptyDataError as e :
-        raise ValueError(f"Data loading failed. '{data_file}' is empty.\nEnsure size of set intersection is not 0 after data preprocessing.") from e
-    samples     = dataframe.values.reshape(len(dataframe)).tolist()
-    return samples
-
-def get_dataloader(net_dict, phases, data_path, NORM_CONST):
-    """
-    Description
-    ___________
-    The function creates a dataloader object for the specified phases ('train', 'val', and 'test').
-
     Parameters
-    __________
+    ----------
     net_dict : dict
-        dictionary that contains file paths for the data
-    phases : list
-        list of strings that specifies the phases to be loaded
+        Dictionary containing network configuration
+    phases : list of str
+        List of phase identifiers ('train', 'val', 'inf')
     data_path : dict or str
         If dict: mapping of site codes to data directories (multi-site)
         If str: single data path (backward compatible)
     NORM_CONST : float
         Normalization constant
-
-    Returns
-    _______
-    dataloader : dict
-        dictionary of dataloader objects
-
+    train_samples : list of str, optional
+        Pre-loaded training sample list (with site prefixes for multi-site)
+    val_samples : list of str, optional
+        Pre-loaded validation sample list (with site prefixes for multi-site)
     
+    Returns
+    -------
+    dataloader : dict
+        Dictionary of DataLoader objects keyed by phase
     """
     from torch.utils.data import DataLoader
     
@@ -465,8 +476,8 @@ def get_dataloader(net_dict, phases, data_path, NORM_CONST):
     
     dataloader = {}
     for phase in phases:
-        #check_inputs(net_dict, phase)
-        samples = return_fields(net_dict, phase)
+        # Get samples for this phase
+        samples = return_fields(phase, train_samples=train_samples, val_samples=val_samples)
         data = []
         
         for num, name_tuple in enumerate(zip(tqdm(samples))):
