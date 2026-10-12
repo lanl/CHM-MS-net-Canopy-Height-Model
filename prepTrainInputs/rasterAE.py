@@ -326,7 +326,7 @@ def _load_sourcecoop_index(cache_dir=None) -> gpd.GeoDataFrame:
 
     if not cache_path.exists():
         temporary_path = cache_path.with_suffix(".parquet.tmp")
-        print("Downloading source.coop AlphaEarth index to %s", cache_path)
+        print(f"Downloading source.coop AlphaEarth index to {cache_path}")
         try:
             with requests.get(SOURCECOOP_INDEX_URL, stream=True, timeout=120) as response:
                 response.raise_for_status()
@@ -339,7 +339,7 @@ def _load_sourcecoop_index(cache_dir=None) -> gpd.GeoDataFrame:
             temporary_path.unlink(missing_ok=True)
             raise
     else:
-        print("Using cached source.coop AlphaEarth index: %s", cache_path)
+        print(f"Using cached source.coop AlphaEarth index: {cache_path}")
 
     try:
         index = gpd.read_parquet(cache_path)
@@ -502,7 +502,7 @@ def fetch_alphaEarth_sourcecoop(
             raise RuntimeError("Source.coop output did not have the expected 64-band int8 format")
         if output.crs.to_epsg() != int(epsg):
             raise RuntimeError(f"Expected EPSG:{epsg}, got {output.crs}")
-    print("Saved source.coop AlphaEarth raster: %s", save_path)
+    print(f"Saved source.coop AlphaEarth raster: {save_path}")
     return str(save_path)
 
 
@@ -906,7 +906,7 @@ def fetch_alphaEarth(
     year = int(year)
     
     if year == VALID_YEAR_RANGE[0]:
-        print("Fetching AlphaEarth embeddings for year %d via GEE", year)
+        print(f"Fetching AlphaEarth embeddings for year {year} via GEE")
         return fetch_alphaEarth_gee(
             geojson_path=geojson_path,
             save_path=save_path,
@@ -919,7 +919,7 @@ def fetch_alphaEarth(
             temp_dir=temp_dir,
         )
 
-    print("Fetching AlphaEarth embeddings for year %d via source.coop", year)
+    print(f"Fetching AlphaEarth embeddings for year {year} via source.coop")
     return fetch_alphaEarth_sourcecoop(
         geojson_path=geojson_path,
         save_path=save_path,

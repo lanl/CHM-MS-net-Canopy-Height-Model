@@ -3162,7 +3162,7 @@ def get_pca_dims(channels):
     pca_dims = []
 
     for channel in channels :
-        if match := re.match(r"ae-(\d+)$", channel) :
+        if match := re.match(r"base-ae-(\d+)$", channel) :
             dim = match.group(1)
             pca_dims.append(int(dim))
 

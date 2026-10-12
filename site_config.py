@@ -91,13 +91,12 @@ def load_site_config(site_code):
     else:
         # Default: project_parent/{site}_data
         site['data_path'] = str(project_parent / f'{site_code}_data')
-    
     site['inferenceShpPath'] = str(
-        project_parent / 'downloads' / site_code / 'infShp' / config['inference_shape']
+        project_parent / 'downloads' / site_code / 'infShp' / site['inference_shape']
     )
     # going to use the same naming scheme as .env variables 'customTrainShpPath'
     site['trainShpPath'] = str(
-        project_parent / 'downloads' / site_code / 'trainShp' / config['train_shape']
+        project_parent / 'downloads' / site_code / 'trainShp' / site['train_shape']
     )
 
     return site

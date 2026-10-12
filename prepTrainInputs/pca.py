@@ -61,7 +61,7 @@ AE_BANDS = 64
 AE_BAND_NAMES = [f"A{i:02d}" for i in range(AE_BANDS)]
 
 # Target dimensions for PCA reduction
-TARGET_DIMENSIONS = [4, 8, 16, 32, 64]
+#TARGET_DIMENSIONS = [4, 8, 16, 32, 64]
 # Sampling parameters
 DEFAULT_SAMPLE_SIZE = 100000  # 100k pixels for stable covariance estimation
 DEFAULT_CHUNK_SIZE = 1000
@@ -574,8 +574,8 @@ def reduce_ae_dimensions(
                 pca_8d.pkl, pca_8d_metadata.json
                 ...
     """
-    if target_dims is None:
-        target_dims = TARGET_DIMENSIONS
+    # if target_dims is None:
+    #     target_dims = TARGET_DIMENSIONS
     
     output_dir = Path(output_dir)
     model_dir = output_dir / 'pca_models'

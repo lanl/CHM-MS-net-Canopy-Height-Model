@@ -17,13 +17,11 @@ import glob
 # import site_config from higher scope
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
+    from site_config import load_global_vars
     from site_config import load_site_config
 finally:
     sys.path.pop(0)
 
-
-# Target dimensions for PCA reduction
-TARGET_DIMENSIONS = [4, 8, 16, 32, 64]
 
 def main() :
     
@@ -45,32 +43,18 @@ def main() :
     # define base paths (maybe load project_dir from load_global_vars)
     project_parent = os.path.abspath(os.path.join(project_dir, ".."))
     print(f"project_parent: {project_parent}")
-    site_data_path = os.path.join(project_parent, f'{site}_data')
-    lidar_tiles_path = os.path.join(site_data_path, 'chm')
-    pathToLidarResources = os.path.join(project_dir, "prepTrainInputs", "resources.geojson")
-
-    # Folder creations
-    os.makedirs(site_data_path, exist_ok=True)
-    os.makedirs(os.path.join(site_data_path, 'wvimg'), exist_ok=True)
-    wvimg_train_path = os.path.join(project_parent, 'downloads', site, 'wvimgTrain')
-    wvimg_inf_path = os.path.join(project_parent, 'downloads', site, 'wvimgInf')
-    os.makedirs(wvimg_train_path, exist_ok=True)
-    os.makedirs(wvimg_inf_path, exist_ok=True)
-
-    # AlphaEarth paths and folder creations
-    ae_tiles_path = os.path.join(site_data_path, 'ae')
-    source_raster = os.path.join(ae_tiles_path, 'ae_source.tif')
 
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Prepare training data (step 2) for a list of sites')
+    parser = argparse.ArgumentParser(description='Prepare training data (step 1) for a list of sites')
     parser.add_argument('--sites', type=str, nargs='+', required=True,
                        help='Site code (e.g., ws, lm, qm). Overrides .env file if provided.')
-    parser.add_argument('--channels', type=str, choices=default_channels, nargs='+', default=default_channels, required=False
+    parser.add_argument('--channels', type=str, choices=default_channels, nargs='+', default=default_channels, required=False,
                         help=f'Used within the pca process. Choices are specified in config.json')
     args = parser.parse_args()
 
-
     sites = args.sites
+    channels = args.channels
+
     # for each site in sites, generate data
     for site in sites :
         print(f"Current site is:  {site}")
@@ -82,13 +66,30 @@ def main() :
         inferenceShpPath = site_config['inferenceShpPath']
         customTrainShpPath = site_config['trainShpPath']
         customTrainShpPath = None      # keep None for now to avoid alternate training behavior
+        customLidarTifPath = None
+        
+        # define site-specific paths
+        site_data_path = os.path.join(project_parent, f'{site}_data')
+        lidar_tiles_path = os.path.join(site_data_path, 'chm')
+        pathToLidarResources = os.path.join(project_dir, "prepTrainInputs", "resources.geojson")
 
+        # Folder creations
+        os.makedirs(site_data_path, exist_ok=True)
+        os.makedirs(os.path.join(site_data_path, 'wvimg'), exist_ok=True)
+        wvimg_train_path = os.path.join(project_parent, 'downloads', site, 'wvimgTrain')
+        wvimg_inf_path = os.path.join(project_parent, 'downloads', site, 'wvimgInf')
+        os.makedirs(wvimg_train_path, exist_ok=True)
+        os.makedirs(wvimg_inf_path, exist_ok=True)
+
+        # AlphaEarth paths and folder creations
+        ae_tiles_path = os.path.join(site_data_path, 'ae')
+        source_raster = os.path.join(ae_tiles_path, 'ae_source.tif')
 
         # merge wvimg (will take a while)
         print('Merging wvimg tiles')
         wvimgMergedPath = os.path.join(site_data_path, 'prewvimg')
         print(f"wvimgMergedPath: {wvimgMergedPath}")
-        pathToWvimg = os.path.join(project_path, 'downloads', site, 'wvimgTrain')
+        pathToWvimg = os.path.join(project_parent, 'downloads', site, 'wvimgTrain')
         os.makedirs(wvimgMergedPath, exist_ok=True)
         utils.mergeTifs(pathToWvimg, wvimgMergedPath)
         print(f'Saved merged wvimg tiles to {wvimgMergedPath}')
@@ -99,7 +100,7 @@ def main() :
 
         # get wvimg metadata
         print('Saving wvimg metadata')
-        metadataPath = os.path.join(project_path, 'downloads', site, 'metadata', 'DGTilesMetadata.json')
+        metadataPath = os.path.join(project_parent, 'downloads', site, 'metadata', 'DGTilesMetadata.json')
         os.makedirs(os.path.dirname(metadataPath), exist_ok=True)
         utils.saveWvimgMetadata(wvimgPath=pathToWvimg, savePath=metadataPath, prewvimgPath=wvimgMergedPath)
         print(f'Saved metadata to: {metadataPath}')
@@ -112,7 +113,7 @@ def main() :
         # tile out wvimg data for model partition
         # NOTE: this requires multiple wvimg tiles to be partitioned, as we are using both tiles for areas with intersecting tiles
         print('Tiling wvimg data for model partition')
-        trainAnchorsPath = os.path.join(project_path, 'downloads', site, 'trainShape', f'{site}_trainAnchors.csv')
+        trainAnchorsPath = os.path.join(project_parent, 'downloads', site, 'trainShape', f'{site}_trainAnchors.csv')
         for tif in [f for f in os.listdir(wvimgMergedPath) if f.endswith('.tif')]:
             # only select tiles that have been cropped to the model partition
             utils.tileRaster(pathToRaster=os.path.join(wvimgMergedPath, tif), outputPath=os.path.join(site_data_path, 'wvimg'), dataType = 'wvimg', anchors_csv=trainAnchorsPath)
@@ -132,7 +133,7 @@ def main() :
 
             # if we are using AE and PCA
             if any("ae-" in item for item in channels) :
-                target_dims = get_pca_dims(channels)
+                target_dims = utils.get_pca_dims(channels)
 
                 # iterate through each listed dimension specified in target_dims
                 for n_components in target_dims :

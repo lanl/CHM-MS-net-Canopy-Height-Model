@@ -18,7 +18,7 @@ from pca import reduce_ae_dimensions
 # import site_config from higher scope
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
-    fropm site_config import load_global_vars
+    from site_config import load_global_vars
     from site_config import load_site_config
 finally:
     sys.path.pop(0)
@@ -42,32 +42,18 @@ def main():
     # define base paths (maybe load project_dir from load_global_vars)
     project_parent = os.path.abspath(os.path.join(project_dir, ".."))
     print(f"project_parent: {project_parent}")
-    site_data_path = os.path.join(project_parent, f'{site}_data')
-    lidar_tiles_path = os.path.join(site_data_path, 'chm')
-    pathToLidarResources = os.path.join(project_dir, "prepTrainInputs", "resources.geojson")
-
-    # Folder creations
-    os.makedirs(site_data_path, exist_ok=True)
-    os.makedirs(os.path.join(site_data_path, 'wvimg'), exist_ok=True)
-    wvimg_train_path = os.path.join(project_parent, 'downloads', site, 'wvimgTrain')
-    wvimg_inf_path = os.path.join(project_parent, 'downloads', site, 'wvimgInf')
-    os.makedirs(wvimg_train_path, exist_ok=True)
-    os.makedirs(wvimg_inf_path, exist_ok=True)
-
-    # AlphaEarth paths and folder creations
-    ae_tiles_path = os.path.join(site_data_path, 'ae')
-    source_raster = os.path.join(ae_tiles_path, 'ae_source.tif')
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Prepare training data (step 1) for a list of sites')
     parser.add_argument('--sites', type=str, nargs='+', required=True,
                        help='Site code (e.g., ws, lm, qm). Overrides .env file if provided.')
-    parser.add_argument('--channels', type=str, choices=default_channels, nargs='+', default=default_channels, required=False
+    parser.add_argument('--channels', type=str, choices=default_channels, nargs='+', default=default_channels, required=False,
                         help=f'Used within the pca process. Choices are specified in config.json')
     args = parser.parse_args()
 
-
     sites = args.sites
+    channels = args.channels
+
     # for each site in sites, generate data
     for site in sites :
         print(f"Current site is:  {site}")
@@ -79,8 +65,25 @@ def main():
         inferenceShpPath = site_config['inferenceShpPath']
         customTrainShpPath = site_config['trainShpPath']
         customTrainShpPath = None      # keep None for now to avoid alternate training behavior
-
+        customLidarTifPath = None
         
+        # define site-specific paths
+        site_data_path = os.path.join(project_parent, f'{site}_data')
+        lidar_tiles_path = os.path.join(site_data_path, 'chm')
+        pathToLidarResources = os.path.join(project_dir, "prepTrainInputs", "resources.geojson")
+
+        # Folder creations
+        os.makedirs(site_data_path, exist_ok=True)
+        os.makedirs(os.path.join(site_data_path, 'wvimg'), exist_ok=True)
+        wvimg_train_path = os.path.join(project_parent, 'downloads', site, 'wvimgTrain')
+        wvimg_inf_path = os.path.join(project_parent, 'downloads', site, 'wvimgInf')
+        os.makedirs(wvimg_train_path, exist_ok=True)
+        os.makedirs(wvimg_inf_path, exist_ok=True)
+
+        # AlphaEarth paths and folder creations
+        ae_tiles_path = os.path.join(site_data_path, 'ae')
+        source_raster = os.path.join(ae_tiles_path, 'ae_source.tif')
+
 
         ############ PREPARE SHAPES AND ANCHORS #############
 
@@ -269,7 +272,7 @@ def main():
 
         # if we are using ae and pca
         if any("ae-" in item for item in channels) :
-            output_dir = Path(source_raster).parent
+            output_dir = os.path.dirname(source_raster)
             pca_dims = utils.get_pca_dims(channels)
                 
             # call PCA for all default dimensions
