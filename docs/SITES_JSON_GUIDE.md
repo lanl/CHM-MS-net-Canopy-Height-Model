@@ -18,7 +18,7 @@ The `sites.json` file provides a centralized configuration system for managing m
 
 ### Location
 ```
-/project/es14-stor/canopy/SatCHM/sites.json
+/project/snow_fire/ecr/satchm/SatCHM/sites.json
 ```
 
 ### Format
@@ -99,7 +99,7 @@ Site: ws - Wesner Springs
 ============================================================
 EPSG: 32613
 Inference Shape: wesner_springs_area_32613.geojson
-Inference Path: /project/es14-stor/canopy/SatCHM/downloads/ws/infShp/wesner_springs_area_32613.geojson
+Inference Path: /project/snow_fire/ecr/satchm/SatCHM/downloads/ws/infShp/wesner_springs_area_32613.geojson
 Notes: Training completed 2026-07-28
 ============================================================
 ```
