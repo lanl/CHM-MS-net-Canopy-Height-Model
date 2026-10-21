@@ -16,12 +16,20 @@ from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 from multiprocessing import freeze_support
 
-from network_2D_lightning import MS_Net
-from ms_parser import parse_args
-from pore_utils_2D import get_dataloader, load_hparams, num_input_channels
-from plotting_utils import evaluate_validation_model
+try:
+    from .network_2D_lightning import MS_Net
+    from .ms_parser import parse_args
+    from .pore_utils_2D import get_dataloader, load_hparams, num_input_channels
+    from .plotting_utils import evaluate_validation_model
+except (ImportError, ModuleNotFoundError):
+    from network_2D_lightning import MS_Net
+    from ms_parser import parse_args
+    from pore_utils_2D import get_dataloader, load_hparams, num_input_channels
+    from plotting_utils import evaluate_validation_model
+
 import re
 import warnings
+import io
 
 
 def setup_environment():
@@ -92,7 +100,6 @@ def setup_params(sites):
         if "base-ae-" in channel :
             ae_dims = f"ae_{int(channel.removeprefix("base-ae-"))}"
             params.x_array = ['wvimg', 'solar', 'sensor', 'dem', ae_dims]
-            print(f"params.x_array: {params.x_array}")
         # contains base-ae
         elif "base-ae" == channel :
             params.x_array = ['wvimg', 'solar', 'sensor', 'dem', 'ae']
@@ -444,14 +451,7 @@ def train_main(sites, NORM_CONST):
         model_name = order_sites(sites)
         model_name = f"multisite_{model_name}"
     
-    print("\nLoading training and validation samples...\n")
-    train_dataloader = get_dataloader(
-        net_dict, ['train'],
-        data_path=params.data_paths,
-        NORM_CONST=NORM_CONST,
-        train_samples=train_samples,
-        val_samples=val_samples
-    )
+    print("\nLoading validation samples...")
     val_dataloader = get_dataloader(
         net_dict, ['val'],
         data_path=params.data_paths,
@@ -459,19 +459,40 @@ def train_main(sites, NORM_CONST):
         train_samples=train_samples,
         val_samples=val_samples
     )
-    trainer = setup_trainer(
-        params,
-        model_name,             # Use combined name for multi-site
-        net_dict=net_dict,      # pass dictionary for writing hparams.yaml
-        new_model=new_model     # pass whether this is a new model or not
-    )
-    try:
-        trainer.fit(model, train_dataloader, val_dataloader['val'])
-    except KeyboardInterrupt:
-        print("\nTraining stopped by user (Ctrl+C).")
+    if not params.eval_only and new_model :
+        print("Training and Evaluating")
+        # in train mode
+        print("\nLoading training samples...")
+        train_dataloader = get_dataloader(
+            net_dict, ['train'],
+            data_path=params.data_paths,
+            NORM_CONST=NORM_CONST,
+            train_samples=train_samples,
+            val_samples=val_samples
+        )
+        trainer = setup_trainer(
+            params,
+            model_name,             # Use combined name for multi-site
+            net_dict=net_dict,      # pass dictionary for writing hparams.yaml
+            new_model=new_model     # pass whether this is a new model or not
+        )
+        try:
+            trainer.fit(model, train_dataloader, val_dataloader['val'])
+        except KeyboardInterrupt:
+            print("\nTraining stopped by user (Ctrl+C).")
+            # stats = evaluate_validation_model(
+            #     model=model,
+            #     val_dataloader=val_dataloader['val'],
+            #     norm_const=NORM_CONST,
+            #     plot_sample=True,
+            #     data_point_index=0,
+            #     save_plot=f"validation_comparison_{model_name}.png"
+            # )
+    else :
+        # in eval-only mode
+        print("Only Evaluating")
 
-    # call evaluate model
-    evaluate_validation_model(
+    stats = evaluate_validation_model(
         model=model,
         val_dataloader=val_dataloader['val'],
         norm_const=NORM_CONST,
@@ -479,6 +500,28 @@ def train_main(sites, NORM_CONST):
         data_point_index=0,
         save_plot=f"validation_comparison_{model_name}.png"
     )
+    buffer = io.StringIO()
+    buffer.write("\n" + "=" * 60 + "\n")
+    buffer.write("VALIDATION MODEL STATISTICS")
+    buffer.write("\n" + "=" * 60 + "\n")
+    buffer.write(f"Pixels evaluated:       {stats["n_pixels"]:,}\n")
+    buffer.write(f"MSE:                    {stats["mse_m2"]:.4f} m²\n")
+    buffer.write(f"RMSE:                   {stats["rmse_m"]:.4f} m\n")
+    buffer.write(f"MAE:                    {stats["mae_m"]:.4f} m\n")
+    buffer.write(f"Mean signed error:      {stats["mean_signed_error_m"]:.4f} m\n")
+    buffer.write(f"Std. signed error:      {stats["std_signed_error_m"]:.4f} m\n")
+    buffer.write(f"R²:                     {stats["r2"]:.4f}\n")
+    buffer.write("\nObserved:\n")
+    buffer.write(f"  Mean:                 {stats["observed_mean_m"]:.4f} m\n")
+    buffer.write(f"  Std:                  {stats["observed_std_m"]:.4f} m\n")
+    buffer.write("\nPredicted:\n")
+    buffer.write(f"  Mean:                 {stats["predicted_mean_m"]:.4f} m\n")
+    buffer.write(f"  Std:                  {stats["predicted_std_m"]:.4f} m\n")
+    buffer.write("=" * 60 + "\n")
+    print(buffer.getvalue())
+    with open(f"model_metrics_{model_name}.txt", "w", encoding="utf-8") as file :
+        file.write(buffer.getvalue())
+    buffer.close()
 
 def main():
     # freeze_support()
@@ -487,6 +530,8 @@ def main():
     
     # Get sites from command line (now required)
     sites = params.sites
+    if not sites :
+        raise ValueError("Sites cannot be empty or missing.")
     print(f"Training on site(s): {', '.join(sites)}")
     
     import sys

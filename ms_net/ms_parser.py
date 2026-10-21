@@ -72,54 +72,54 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="MS-Net properties.")
 
     # GPU PROPERTIES
-    parser.add_argument("--gpu_device", default=0, type=int)
+    parser.add_argument("--gpu-device", default=0, type=int)
 
     # NETWORK PROPERTIES
-    parser.add_argument("--net_name", default="CHMer", type=str)
-    parser.add_argument("--num_scales", default=3, type=int)
-    parser.add_argument("--num_filters", default=8, type=int)
-    parser.add_argument("--f_mult", default=4, type=int)
+    parser.add_argument("--net-name", default="CHMer", type=str)
+    parser.add_argument("--num-scales", default=3, type=int)
+    parser.add_argument("--num-filters", default=8, type=int)
+    parser.add_argument("--f-mult", default=4, type=int)
 
     # TRAINING PARAMETERS
     parser.add_argument("--train", default=True, type=str2bool)
     parser.add_argument("--LR", default=1e-4, type=float)
-    parser.add_argument("--max_epochs", default=1000, type=int)
-    parser.add_argument("--min_epochs", default=10, type=int)
+    parser.add_argument("--max-epochs", default=1000, type=int)
+    parser.add_argument("--min-epochs", default=10, type=int)
     parser.add_argument("--steps", default=4, type=int)
-    parser.add_argument("--batch_size", default=32, type=int)
-    parser.add_argument("--accumulate_grad_batches", default=1, type=int)
-    parser.add_argument("--check_val_every_n_epoch", default=2, type=int)
-    parser.add_argument("--gradient_clip_val", default=1.0, type=float)
+    parser.add_argument("--batch-size", default=32, type=int)
+    parser.add_argument("--accumulate-grad-batches", default=1, type=int)
+    parser.add_argument("--check-val-every-n-epoch", default=2, type=int)
+    parser.add_argument("--gradient-clip-val", default=1.0, type=float)
 
     # ALPHA EARTH
     parser.add_argument("--use-ae", action="store_true")        # FIXME: to be removed
     parser.add_argument('--pca-dims', type=int, choices=TARGET_DIMENSIONS, default=None)        # FIXME: to be removed
 
     # MODEL CHANNELS
-    parser.add_argument("--channel", type=str, choices=channels_opt, default=None, required=True)
+    parser.add_argument("--channel", type=str, choices=channels_opt, default=None)
 
     # EVALUATION PARAMETERS
     parser.add_argument("--eval-only", action="store_true")         # defaults to False. True when passed       # FIXME: to be removed
     parser.add_argument("--model-loc", default=None, type=str)       # used alongside --eval-only to specify your model_loc
 
     # TESTING/RESTART PARAMETERS
-    parser.add_argument("--num_model", default=0, type=int)
+    parser.add_argument("--num-model", default=0, type=int)
 
     # DATA PARAMETERS
-    parser.add_argument("--rnd_data", default=False, type=str2bool)
-    parser.add_argument("--training_size", default=657, type=int)
-    parser.add_argument("--validation_size", default=140, type=int)
-    parser.add_argument("--data_aug", default=False, type=str2bool)
-    parser.add_argument("--data_loc", default='../../ms-data/', type=str)
+    parser.add_argument("--rnd-data", default=False, type=str2bool)
+    parser.add_argument("--training-size", default=657, type=int)
+    parser.add_argument("--validation-size", default=140, type=int)
+    parser.add_argument("--data-aug", default=False, type=str2bool)
+    parser.add_argument("--data-loc", default='../../ms-data/', type=str)
 
     # SYSTEM CONFIGS
     parser.add_argument("--seed", type=int)
     parser.add_argument("--gpus", default=1, type=int)
-    parser.add_argument("--num_workers", default=4, type=int)
-    parser.add_argument("--num_nodes", default=1, type=int)
+    parser.add_argument("--num-workers", default=4, type=int)
+    parser.add_argument("--num-nodes", default=1, type=int)
     
     # SITE MANAGEMENT
-    parser.add_argument("--sites", type=str, nargs='+', required=True,
+    parser.add_argument("--sites", type=str, nargs='+',
                        help='Site code(s) (e.g., fs_train fw_large qm)')
     parser.add_argument("--norm-const", type=float, default=46,
                        help='Normalization constant for CHM data (default: 46)')

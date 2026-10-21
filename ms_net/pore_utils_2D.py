@@ -47,7 +47,14 @@ FEATURE_CHANNELS = {
     'ae_8': 8,
     'ae_16': 16,
     'ae_32': 32,
-    'ae_64': 64
+    'ae_64': 64,
+    'base': 0,      # FIXME: soon to be used for x-array
+    'base-ae': 64,
+    'base-ae-4': 4,
+    'base-ae-8': 8,
+    'base-ae-16': 16,
+    'base-ae-32': 32,
+    'base-ae-64': 64
 }
 
 def num_input_channels(x_array):
@@ -715,7 +722,7 @@ def load_samples(feat, sample_name, data_paths, NORM_CONST): #, phasename): #, n
         sample = plt.imread(os.path.join(data_path, 'chm', filename))
         sample = sample[:,:,0] / NORM_CONST
         sample[sample<0] = 0
-    # AlphaEarth embeddings: 64-band GeoTIFF, int8 quantized
+    # AlphaEarth embeddings: 64-band GeoTIFF, int8 quantized        # FIXME: soon to be changed to use base-ae-x format, and don't need to process feat as much
     # Must use rasterio (plt.imread fails on >4 bands)
     elif feat.startswith('ae'):
         # Handle AlphaEarth embeddings (both 'ae' and 'ae_N' formats)
