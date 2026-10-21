@@ -203,6 +203,8 @@ def setup_net_dict(params):
     net_dict['edist_stats'] = {'scalar': 2.7}
     net_dict['c_stats'] = {'scalar': 1}
     net_dict['p_stats'] = {'scalar': 0}
+
+    
     net_dict['D_stats'] = {'scalar': 0}
     return net_dict
 
@@ -322,6 +324,41 @@ def load_checkpoint_with_hparams(checkpoint_path):
     return model
 
 
+def get_optimal_precision():
+    """
+    Determine optimal precision based on GPU hardware support.
+    
+    Fallback hierarchy:
+    1. BF16 (best) - Ampere/Ada/Hopper GPUs (RTX 30xx+, A100, H100)
+    2. FP16 (good) - Older GPUs (RTX 20xx, V100, etc.)
+    3. FP32 (safe fallback) - No GPU or very old hardware
+    
+    Returns
+    -------
+    str
+        "bf16-mixed", "16-mixed", or "32"
+    """
+    import torch
+    
+    if not torch.cuda.is_available():
+        print("⚠ No GPU detected, using FP32 precision")
+        return "32"
+    
+    try:
+        # Check BF16 support (requires torch >= 1.10 and Ampere+ GPU)
+        if hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
+            gpu_name = torch.cuda.get_device_name(0)
+            print(f"✓ GPU {gpu_name} supports BF16 - using bf16-mixed precision")
+            return "bf16-mixed"
+        else:
+            gpu_name = torch.cuda.get_device_name(0)
+            print(f"⚠ GPU {gpu_name} does not support BF16 - falling back to FP16-mixed (current behavior)")
+            return "16-mixed"
+    except Exception as e:
+        print(f"⚠ Could not detect GPU capabilities: {e}, using FP16-mixed as safe default")
+        return "16-mixed"
+
+
 def setup_trainer(params, site, net_dict=None, new_model=False):
     """
     Setup PyTorch Lightning trainer with site-specific logging.
@@ -378,13 +415,16 @@ def setup_trainer(params, site, net_dict=None, new_model=False):
         logger.log_hyperparams(net_dict)
 
     print(f"Models will be saved to: lightning_logs/{site}_model/")
+    
+    # Get hardware-optimal precision (BF16 if supported, else FP16, else FP32)
+    precision = get_optimal_precision()
 
     return Trainer(
         max_epochs=params.max_epochs,
         callbacks=cbs,
         logger=logger,  # site-specific logger
         plugins=None,
-        precision="16-mixed",
+        precision=precision,  # Hardware-aware: bf16-mixed > 16-mixed > 32
         devices=1,
         accelerator="gpu",
         log_every_n_steps=10,
