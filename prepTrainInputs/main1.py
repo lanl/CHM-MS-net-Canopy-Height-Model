@@ -23,6 +23,7 @@ try:
 finally:
     sys.path.pop(0)
 
+
 def main():
     ################### SETUP #################
     
@@ -42,6 +43,7 @@ def main():
     # define base paths (maybe load project_dir from load_global_vars)
     project_parent = os.path.abspath(os.path.join(project_dir, ".."))
     print(f"project_parent: {project_parent}")
+    pathToLidarResources = os.path.join(project_dir, "prepTrainInputs", "resources.geojson")
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Prepare training data (step 1) for a list of sites')
@@ -50,7 +52,6 @@ def main():
     parser.add_argument('--channels', type=str, choices=default_channels, nargs='+', default=default_channels, required=False,
                         help=f'Used within the pca process. Choices are specified in config.json')
     args = parser.parse_args()
-
     sites = args.sites
     channels = args.channels
 
@@ -70,7 +71,6 @@ def main():
         # define site-specific paths
         site_data_path = os.path.join(project_parent, f'{site}_data')
         lidar_tiles_path = os.path.join(site_data_path, 'chm')
-        pathToLidarResources = os.path.join(project_dir, "prepTrainInputs", "resources.geojson")
 
         # Folder creations
         os.makedirs(site_data_path, exist_ok=True)
@@ -169,32 +169,32 @@ def main():
 
         ############# PROCESS LIDAR DATA ############################
 
-        # if customLidarTifPath and os.path.isfile(customLidarTifPath):
-        #     print('Tiling lidar data for model partition')
-        #     lidarBaseName, _ = os.path.splitext(customLidarTifPath)
-        #     lidar_UTM_path = f'{lidarBaseName}_utm.tif'
-        #     print(f'lidar_UTM_path: {lidar_UTM_path}')
-        #     utils.tileRaster(
-        #         pathToRaster=lidar_UTM_path,
-        #         outputPath=lidar_tiles_path,
-        #         dataType='chm',
-        #         anchors_csv=trainAnchorsPath,
-        #     )
-        #     print(f'Saved lidar tiles to: {lidar_tiles_path}')
+        if customLidarTifPath and os.path.isfile(customLidarTifPath):
+            print('Tiling lidar data for model partition')
+            lidarBaseName, _ = os.path.splitext(customLidarTifPath)
+            lidar_UTM_path = f'{lidarBaseName}_utm.tif'
+            print(f'lidar_UTM_path: {lidar_UTM_path}')
+            utils.tileRaster(
+                pathToRaster=lidar_UTM_path,
+                outputPath=lidar_tiles_path,
+                dataType='chm',
+                anchors_csv=trainAnchorsPath,
+            )
+            print(f'Saved lidar tiles to: {lidar_tiles_path}')
 
-        # else:
-        #     print('Downloading lidar data from USGS 3DEP')
-        #     utils.createLidarData(
-        #         trainShpPath,
-        #         pathToLidarResources,
-        #         epsg,
-        #         lidarTilesPath=lidar_tiles_path,
-        #         anchors_csv=trainAnchorsPath,
-        #         projectPath=project_parent,
-        #     )
-        #     utils.remove_rasters_with_nodata(lidar_tiles_path, dry_run=False)
-        #     shutil.rmtree(os.path.join(lidar_tiles_path, '_laz_tmp'), ignore_errors=True)
-        #     print(f'Saved lidar data to: {lidar_tiles_path}')
+        else:
+            print('Downloading lidar data from USGS 3DEP')
+            utils.createLidarData(
+                trainShpPath,
+                pathToLidarResources,
+                epsg,
+                lidarTilesPath=lidar_tiles_path,
+                anchors_csv=trainAnchorsPath,
+                projectPath=project_parent,
+            )
+            utils.remove_rasters_with_nodata(lidar_tiles_path, dry_run=False)
+            shutil.rmtree(os.path.join(lidar_tiles_path, '_laz_tmp'), ignore_errors=True)
+            print(f'Saved lidar data to: {lidar_tiles_path}')
 
         
         ################## PROCESS DEM DATA ###########################
@@ -250,7 +250,7 @@ def main():
         alignmentYear = utils.get_alignment_year(trainShpPath, pathToLidarResources)
 
         # conditional if AE is being used
-        if any("ae" in item for item in channels) :
+        if any("base-ae" in item for item in channels) :
             os.makedirs(ae_tiles_path, exist_ok=True)
 
             # Download AlphaEarth Embeddings
@@ -271,7 +271,7 @@ def main():
                 # Expected: Source: 64 bands, int8, WxH, (10.0, 10.0)
 
         # if we are using ae and pca
-        if any("ae-" in item for item in channels) :
+        if any("base-ae-" in item for item in channels) :
             output_dir = os.path.dirname(source_raster)
             pca_dims = utils.get_pca_dims(channels)
                 

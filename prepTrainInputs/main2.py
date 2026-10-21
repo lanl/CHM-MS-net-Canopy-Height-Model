@@ -43,6 +43,7 @@ def main() :
     # define base paths (maybe load project_dir from load_global_vars)
     project_parent = os.path.abspath(os.path.join(project_dir, ".."))
     print(f"project_parent: {project_parent}")
+    pathToLidarResources = os.path.join(project_dir, 'resources.geojson')
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Prepare training data (step 1) for a list of sites')
@@ -71,7 +72,6 @@ def main() :
         # define site-specific paths
         site_data_path = os.path.join(project_parent, f'{site}_data')
         lidar_tiles_path = os.path.join(site_data_path, 'chm')
-        pathToLidarResources = os.path.join(project_dir, "prepTrainInputs", "resources.geojson")
 
         # Folder creations
         os.makedirs(site_data_path, exist_ok=True)
@@ -121,7 +121,7 @@ def main() :
 
 
         # conditional if AE is being used
-        if any("ae" in item for item in channels) :
+        if any("base-ae" in item for item in channels) :
             # tile out non-PCA AlpahEarth
             print("Tiling non-PCA AlphaEarth embeddings...")
             tileAlphaEarth(
@@ -132,7 +132,7 @@ def main() :
             )
 
             # if we are using AE and PCA
-            if any("ae-" in item for item in channels) :
+            if any("base-ae-" in item for item in channels) :
                 target_dims = utils.get_pca_dims(channels)
 
                 # iterate through each listed dimension specified in target_dims

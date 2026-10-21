@@ -1646,12 +1646,12 @@ def renameTiles(ms_data_path):
             if re.search(r"\d+d$", paths) and os.path.isdir(os.path.join(ae_path, paths)) :
                 process_against_wvimg(os.path.join(ae_path, paths))
 
-    # Clean up any files in DEM and lidar that don't have exactly 2 underscores
-    for cleanup_dir in [dem_path, lidar_path]:
-        for fname in os.listdir(cleanup_dir):
-            full_path = os.path.join(cleanup_dir, fname)
-            if os.path.isfile(full_path) and fname.count('_') != 2:
-                os.remove(full_path)
+    # # Clean up any files in DEM and lidar that don't have exactly 2 underscores
+    # for cleanup_dir in [dem_path, lidar_path]:
+    #     for fname in os.listdir(cleanup_dir):
+    #         full_path = os.path.join(cleanup_dir, fname)
+    #         if os.path.isfile(full_path) and fname.count('_') != 2:
+    #             os.remove(full_path)
 
 def makeLists(base_dir: str, site, random_seed=42):
     """
@@ -3117,8 +3117,17 @@ def scale_tif(
     else:
         raise ValueError(f"Invalid option '{option}'. Must be 'mean' or 'max'.")
     
-    # 8. Apply scaling to NN prediction
-    scaled_prediction = pred_data * scale_factor
+    # 8. Apply scaling to NN prediction, preserving NoData values
+    # CRITICAL FIX: Don't scale NoData pixels, as this creates large negative values
+    # that are no longer recognized as NoData (e.g., -9999 * 0.5 = -4999.5)
+    if pred_nodata is not None:
+        scaled_prediction = np.where(
+            pred_data == pred_nodata,
+            pred_nodata,
+            pred_data * scale_factor
+        )
+    else:
+        scaled_prediction = pred_data * scale_factor
     #scaled_prediction = pred_data
     
     # Calculate scaled statistics for verification
