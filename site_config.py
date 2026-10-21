@@ -49,6 +49,8 @@ def load_global_vars():
     if 'models' in global_vars:
         del global_vars['models']
 
+    global_vars['geeKey'] = str(project_dir / global_vars['geeKey'])
+
     return global_vars
 
 
