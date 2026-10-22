@@ -199,7 +199,7 @@ print(f'Cropped CHM tif, saved to {croppedOutputRasterPath}')
 
 print('Scaling predicted CHM tif with respect to training data CHM')
 training_chm_path = os.path.join(project_path, f'{site}_data', 'chm')
-utils.scale_tif(geojson_path=inf_shp_output_path, input_lidar_tifs_folder_path=training_chm_path, pred_lidar_tif_path=croppedOutputRasterPath, output_path=scaledOutputRasterPath, option='mean')
+utils.scale_tif(geojson_path=inf_shp_output_path, input_lidar_tifs_folder_path=training_chm_path, pred_lidar_tif_path=croppedOutputRasterPath, output_path=scaledOutputRasterPath, option='max')
 print(f'Scaled CHM tif, saved to {scaledOutputRasterPath}')
 
 ############# GENERATE TREELIST ####################
