@@ -18,9 +18,6 @@ load_dotenv(find_dotenv())
 
 code_version = 0.00123
 project_directory = os.getenv("project_directory")
-# Target dimensions for PCA reduction
-TARGET_DIMENSIONS = [4, 8, 16, 32, 64]      # FIXME: to be removed
-
 
 # FIXME: idk if this should be duplicated here, imported from sites_config.py, or just make one centralized parsing file
 def load_config():
@@ -90,10 +87,6 @@ def parse_args(argv=None):
     parser.add_argument("--accumulate-grad-batches", default=1, type=int)
     parser.add_argument("--check-val-every-n-epoch", default=2, type=int)
     parser.add_argument("--gradient-clip-val", default=1.0, type=float)
-
-    # ALPHA EARTH
-    parser.add_argument("--use-ae", action="store_true")        # FIXME: to be removed
-    parser.add_argument('--pca-dims', type=int, choices=TARGET_DIMENSIONS, default=None)        # FIXME: to be removed
 
     # MODEL CHANNELS
     parser.add_argument("--channel", type=str, choices=channels_opt, default=None)

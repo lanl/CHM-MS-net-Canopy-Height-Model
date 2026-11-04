@@ -96,19 +96,10 @@ def setup_params(sites):
         raise ValueError("Model channel cannot be empty or missing.")
     # received model architecture
     else :
-        # contains base-ae-
-        if "base-ae-" in channel :
-            ae_dims = f"ae_{int(channel.removeprefix("base-ae-"))}"
-            params.x_array = ['wvimg', 'solar', 'sensor', 'dem', ae_dims]
-        # contains base-ae
-        elif "base-ae" == channel :
-            params.x_array = ['wvimg', 'solar', 'sensor', 'dem', 'ae']
-        # contains base
-        elif "base" == channel :
+        if channel == 'base':
             params.x_array = ['wvimg', 'solar', 'sensor', 'dem']
-        # will catch if an incorrect arg is passed, but that is handled within ms_parser.py anywasy
         else :
-            raise ValueError(f"Incorrect model channel: {channel} cannot be used.")
+            params.x_array = ['wvimg', 'solar', 'sensor', 'dem', channel]
     
     params.y_array = ['chm']
     params.x_xform = [None] * len(params.x_array)
@@ -203,8 +194,6 @@ def setup_net_dict(params):
     net_dict['edist_stats'] = {'scalar': 2.7}
     net_dict['c_stats'] = {'scalar': 1}
     net_dict['p_stats'] = {'scalar': 0}
-
-    
     net_dict['D_stats'] = {'scalar': 0}
     return net_dict
 
@@ -537,7 +526,7 @@ def train_main(sites, NORM_CONST):
         val_dataloader=val_dataloader['val'],
         norm_const=NORM_CONST,
         plot_sample=True,
-        data_point_index=0,
+        data_point_index=1,
         save_plot=f"validation_comparison_{model_name}.png"
     )
     buffer = io.StringIO()

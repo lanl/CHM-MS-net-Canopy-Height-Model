@@ -42,13 +42,6 @@ FEATURE_CHANNELS = {
     'sensor': 1,
     'dem': 1,
     'chm': 1,
-    'ae': 64,
-    'ae_4': 4,      # pca ae bands
-    'ae_8': 8,
-    'ae_16': 16,
-    'ae_32': 32,
-    'ae_64': 64,
-    'base': 0,      # FIXME: soon to be used for x-array
     'base-ae': 64,
     'base-ae-4': 4,
     'base-ae-8': 8,
@@ -722,15 +715,15 @@ def load_samples(feat, sample_name, data_paths, NORM_CONST): #, phasename): #, n
         sample = plt.imread(os.path.join(data_path, 'chm', filename))
         sample = sample[:,:,0] / NORM_CONST
         sample[sample<0] = 0
-    # AlphaEarth embeddings: 64-band GeoTIFF, int8 quantized        # FIXME: soon to be changed to use base-ae-x format, and don't need to process feat as much
+    # AlphaEarth embeddings: 64-band GeoTIFF, int8 quantized
     # Must use rasterio (plt.imread fails on >4 bands)
-    elif feat.startswith('ae'):
-        # Handle AlphaEarth embeddings (both 'ae' and 'ae_N' formats)
-        if feat == 'ae':
-            ae_path = os.path.join(data_path, 'ae', '64d', filename)
+    # Handle AlphaEarth embeddings (both 'base-ae' and 'base-ae-X' formats)
+    elif feat.startswith('base-ae'):
+        if feat == 'base-ae':
+            ae_path = os.path.join(data_path, 'ae', filename)
         else:
-            # Extract dimension from 'ae_X' -> 'Xd'
-            dim = feat.split('_')[1]
+            # Extract dimension from 'base-ae-X' -> 'Xd'
+            dim = feat.split('-')[2]
             ae_path = os.path.join(data_path, 'ae', f'{dim}d', filename)
         
         with rasterio.open(ae_path) as src:
