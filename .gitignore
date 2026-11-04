@@ -13,6 +13,7 @@ daily_notes.md
 *.csv
 *.pyc
 \downloads
+prepTrainInputs/pca_models
 <<<<<<< HEAD
 # Model symlinks (actual models stored outside repo)
 ms_net/lightning_logs/*_model

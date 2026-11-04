@@ -11,9 +11,9 @@ import geopandas as gpd
 from dotenv import load_dotenv
 import utils
 from rasterAE import fetch_alphaEarth
+from pca import fit_pca_model, apply_pca_to_site
 import rasterio
 import sys
-from pca import reduce_ae_dimensions
 
 # import site_config from higher scope
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -167,6 +167,15 @@ def main():
             )
         print(f'Saved tile anchors to {trainAnchorsPath}')
 
+        alignmentYear = utils.get_alignment_year(trainShpPath, pathToLidarResources)
+        print('==========================================================')
+        print(f'SITE: {site}')
+        print(f'Align satellite imagery to year: {alignmentYear}')
+        print(f'Train shape saved at: {trainShpPath}')
+        print(f'Inference shape saved at: {inf_shp_output_path}')
+        print('==========================================================')
+        exit(0)
+
         ############# PROCESS LIDAR DATA ############################
 
         if customLidarTifPath and os.path.isfile(customLidarTifPath):
@@ -270,27 +279,45 @@ def main():
                 print(f"Source: {src.count} bands, {src.dtypes[0]}, {src.width}x{src.height}, {src.res}")
                 # Expected: Source: 64 bands, int8, WxH, (10.0, 10.0)
 
-        # if we are using ae and pca
-        if any("base-ae-" in item for item in channels) :
-            output_dir = os.path.dirname(source_raster)
-            pca_dims = utils.get_pca_dims(channels)
-                
-            # call PCA for all default dimensions
-            results = reduce_ae_dimensions(
-                ae_source_path=str(source_raster),
-                output_dir=str(output_dir),
-                site_name=site,
-                target_dims=pca_dims,
-                validate=False,
-            )
-
-
         print('==========================================================')
         print(f'SITE: {site}')
         print(f'Align satellite imagery to year: {alignmentYear}')
         print(f'Train shape saved at: {trainShpPath}')
         print(f'Inference shape saved at: {inf_shp_output_path}')
         print('==========================================================')
+
+    # Unified PCA processing for all sites (works for 1 or more sites)
+    # This runs AFTER all sites have their data prepared
+    if any("base-ae-" in item for item in channels):
+        pca_dims = utils.get_pca_dims(channels)
+        
+        print('\n' + '='*60)
+        print(f'FITTING PCA MODEL FOR SITES: {sites}')
+        print(f'Dimensions: {pca_dims}')
+        print('='*60)
+        
+        # Fit PCA on all sites combined
+        pca_models = fit_pca_model(
+            sites=sites,
+            project_parent=project_parent,
+            target_dims=pca_dims,
+            sample_size_per_site=100000,
+            chunk_size=1000
+        )
+        
+        # Apply PCA transformation to each site's data
+        print('\nApplying PCA transformation to each site...')
+        for site in sites:
+            apply_pca_to_site(
+                site=site,
+                project_parent=project_parent,
+                pca_models_dict=pca_models,
+                chunk_size=1000
+            )
+        
+        ordered_name = utils.order_sites(sites)
+        print(f'\n✓ PCA processing complete. Models saved to: prepTrainInputs/pca_models/{ordered_name}/')
+
 
 # Standard multiprocessing guard
 if __name__ == "__main__":

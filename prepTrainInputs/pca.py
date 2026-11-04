@@ -523,7 +523,268 @@ def validate_pca_reconstruction(
 
 
 # ────────────────────────────────────────────────────────────────────
-# Main Workflow
+# Multi-Site PCA Workflow (Unified)
+# ────────────────────────────────────────────────────────────────────
+
+def save_pca_model_central(
+    pca: PCA,
+    sites: List[str],
+    save_dir: Path,
+    metadata: Dict
+) -> Tuple[Path, Path]:
+    """
+    Save PCA model and metadata to centralized directory.
+    
+    Parameters
+    ----------
+    pca : PCA
+        Fitted sklearn PCA object
+    sites : List[str]
+        List of sites used for fitting (will be ordered for directory name)
+    save_dir : Path
+        Base directory for PCA models (e.g., prepTrainInputs/pca_models/)
+    metadata : Dict
+        Metadata about the PCA fitting process
+        
+    Returns
+    -------
+    Tuple[Path, Path]
+        Paths to saved model and metadata files
+    """
+    # Import order_sites here to avoid circular imports at module level
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    try:
+        from prepTrainInputs.utils import order_sites
+    finally:
+        sys.path.pop(0)
+    
+    # Create ordered site name for directory
+    ordered_name = order_sites(sites)
+    model_dir = save_dir / ordered_name
+    model_dir.mkdir(parents=True, exist_ok=True)
+    
+    n_components = pca.n_components_
+    
+    # Save paths
+    model_path = model_dir / f"pca_{n_components}d.pkl"
+    metadata_path = model_dir / f"pca_{n_components}d_metadata.json"
+    
+    # Save PCA model
+    with open(model_path, 'wb') as f:
+        pickle.dump(pca, f)
+    
+    # Save metadata
+    with open(metadata_path, 'w') as f:
+        json.dump(metadata, f, indent=2)
+    
+    logger.info(f"Saved PCA-{n_components}d model to: {model_path}")
+    
+    return model_path, metadata_path
+
+
+def fit_pca_model(
+    sites: List[str],
+    project_parent: str,
+    target_dims: List[int],
+    sample_size_per_site: int = DEFAULT_SAMPLE_SIZE,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    seed: int = 42
+) -> Dict[int, Tuple[PCA, Dict]]:
+    """
+    Fit PCA models on combined data from one or more sites.
+    
+    This is the unified PCA fitting function - works for single or multiple sites.
+    All models saved to: prepTrainInputs/pca_models/{ordered_sites}/
+    
+    Parameters
+    ----------
+    sites : List[str]
+        List of site codes (can be single or multiple)
+        e.g., ['fs_train_ae'] or ['fs_train_ae', 'fw']
+    project_parent : str
+        Path to parent directory containing {site}_data folders
+    target_dims : List[int]
+        PCA dimensions to fit (derived from --channels argument)
+        e.g., [4, 8, 16, 32, 64]
+    sample_size_per_site : int
+        Pixels to sample from EACH site (ensures balanced contribution)
+    chunk_size : int
+        Chunk size for memory-efficient raster transformation
+    seed : int
+        Random seed for reproducibility
+        
+    Returns
+    -------
+    Dict[int, Tuple[PCA, Dict]]
+        Mapping of dimensions to (fitted PCA model, metadata)
+        
+    Example
+    -------
+    # Single site
+    pca_models = fit_pca_model(['fs_train_ae'], project_parent, [4, 8, 16])
+    
+    # Multiple sites
+    pca_models = fit_pca_model(['fs_train_ae', 'fw'], project_parent, [4, 8, 16])
+    """
+    # Import order_sites here
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    try:
+        from prepTrainInputs.utils import order_sites
+    finally:
+        sys.path.pop(0)
+    
+    logger.info("="*60)
+    logger.info(f"FITTING PCA MODEL FOR SITES: {sites}")
+    logger.info(f"Target dimensions: {target_dims}")
+    logger.info(f"Sample size per site: {sample_size_per_site:,} pixels")
+    logger.info("="*60)
+    
+    # Step 1: Load and sample AE data from each site
+    all_samples = []
+    samples_per_site = {}
+    
+    for site in sites:
+        site_data_path = Path(project_parent) / f"{site}_data"
+        ae_source = site_data_path / "ae" / "ae_source.tif"
+        
+        if not ae_source.exists():
+            raise FileNotFoundError(
+                f"AE source raster not found for site '{site}': {ae_source}\n"
+                f"Run AlphaEarth download for this site first."
+            )
+        
+        logger.info(f"Sampling {sample_size_per_site:,} pixels from site: {site}")
+        site_samples = sample_pixels_from_raster(
+            raster_path=str(ae_source),
+            sample_size=sample_size_per_site,
+            seed=seed
+        )
+        
+        all_samples.append(site_samples)
+        samples_per_site[site] = len(site_samples)
+        logger.info(f"  Site '{site}': {len(site_samples):,} pixels sampled")
+    
+    # Step 2: Combine samples from all sites
+    combined_samples = np.vstack(all_samples)
+    total_samples = len(combined_samples)
+    
+    logger.info(f"\nCombined samples from {len(sites)} site(s): {total_samples:,} total pixels")
+    logger.info(f"Sample shape: {combined_samples.shape}")
+    logger.info(f"Sample range: [{combined_samples.min():.3f}, {combined_samples.max():.3f}]")
+    
+    # Step 3: Fit PCA models for each target dimension
+    pca_models = {}
+    ordered_name = order_sites(sites)
+    
+    # Get central PCA models directory
+    script_dir = Path(__file__).parent
+    pca_models_dir = script_dir / "pca_models"
+    
+    for dim in target_dims:
+        logger.info(f"\n{'─'*60}")
+        logger.info(f"Fitting PCA: {AE_BANDS} → {dim} dimensions")
+        
+        # Fit PCA
+        pca = fit_pca(combined_samples, n_components=dim)
+        
+        # Prepare metadata
+        metadata = {
+            "sites": sites,
+            "ordered_name": ordered_name,
+            "samples_per_site": samples_per_site,
+            "total_samples": int(total_samples),
+            "pca_dimension": int(dim),
+            "explained_variance_per_component": pca.explained_variance_ratio_.tolist()
+        }
+        
+        # Save to central directory
+        save_pca_model_central(
+            pca=pca,
+            sites=sites,
+            save_dir=pca_models_dir,
+            metadata=metadata
+        )
+        
+        # Store in return dictionary
+        pca_models[dim] = (pca, metadata)
+    
+    logger.info(f"\n{'='*60}")
+    logger.info(f"PCA FITTING COMPLETE")
+    logger.info(f"Models saved to: {pca_models_dir / ordered_name}")
+    logger.info(f"{'='*60}\n")
+    
+    return pca_models
+
+
+
+# ────────────────────────────────────────────────────────────────────
+
+
+def apply_pca_to_site(
+    site: str,
+    project_parent: str,
+    pca_models_dict: Dict[int, Tuple[PCA, Dict]],
+    chunk_size: int = DEFAULT_CHUNK_SIZE
+) -> None:
+    """
+    Transform a single site's AE data using fitted PCA models.
+    
+    Parameters
+    ----------
+    site : str
+        Site code (e.g., 'fs_train_ae')
+    project_parent : str
+        Path to parent directory
+    pca_models_dict : Dict[int, Tuple[PCA, Dict]]
+        Dictionary mapping dimensions to (PCA model, metadata)
+    chunk_size : int
+        Chunk size for memory-efficient processing
+        
+    Input
+    -----
+    Reads from: {project_parent}/{site}_data/ae/ae_source.tif
+    
+    Output
+    ------
+    Writes to: {project_parent}/{site}_data/ae/{dim}d/ae_source_{dim}d.tif
+    """
+    site_data_path = Path(project_parent) / f"{site}_data"
+    ae_source = site_data_path / "ae" / "ae_source.tif"
+    
+    if not ae_source.exists():
+        raise FileNotFoundError(
+            f"AE source raster not found for site '{site}': {ae_source}"
+        )
+    
+    logger.info(f"\n{'─'*60}")
+    logger.info(f"Transforming site: {site}")
+    logger.info(f"{'─'*60}")
+    
+    for dim, (pca, metadata) in pca_models_dict.items():
+        # Create output directory
+        output_dir = site_data_path / "ae" / f"{dim}d"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        output_raster = output_dir / f"ae_source_{dim}d.tif"
+        
+        logger.info(f"\nTransforming to {dim}D using PCA from: {metadata['ordered_name']}")
+        
+        # Transform the raster
+        transform_ae_raster(
+            input_raster=str(ae_source),
+            pca=pca,
+            output_raster=str(output_raster),
+            chunk_size=chunk_size
+        )
+        
+        logger.info(f"✓ Saved: {output_raster}")
+    
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Site '{site}' transformation complete")
+    logger.info(f"{'='*60}\n")
+
+
+# Main Workflow (Legacy - for backward compatibility)
 # ────────────────────────────────────────────────────────────────────
 
 def reduce_ae_dimensions(
