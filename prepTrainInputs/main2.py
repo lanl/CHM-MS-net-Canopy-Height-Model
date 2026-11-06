@@ -43,7 +43,8 @@ def main() :
     # define base paths (maybe load project_dir from load_global_vars)
     project_parent = os.path.abspath(os.path.join(project_dir, ".."))
     print(f"project_parent: {project_parent}")
-    pathToLidarResources = os.path.join(project_dir, 'resources.geojson')
+    pathToLidarResources = os.path.join(project_parent, "prepTrainInputs", 'resources.geojson')
+    pathToRScript = os.path.join(projectPath, 'CHM-MS-net-Canopy-Height-Model', 'prepTrainInputs', 'Rutils.R')
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Prepare training data (step 1) for a list of sites')

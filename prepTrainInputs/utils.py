@@ -29,6 +29,7 @@ from dataclasses import dataclass
 import warnings
 import stat
 import traceback
+from rasterio.mask import mask
 
 # Third-party
 import geopandas as gpd
@@ -480,7 +481,7 @@ def fetch_DEM(geojson_path, save_path, api_key, demtype="COP30", buffer_m=0):
     elif response.status_code == 204:
         raise RuntimeError("No data available for given bounding box.")
     elif response.status_code == 401:
-        raise RuntimeError("Unauthorized – check your API key.")
+        raise RuntimeError("Unauthorized - check your API key.")
     else:
         raise RuntimeError(f"API request failed with code {response.status_code}: {response.text}")
 
@@ -523,7 +524,7 @@ def search_maxar_discovery_from_shapefile(
     target_year : int
         Year to which results should be temporally closest (e.g., 2022).
     page_size : int
-        Results per page (Discovery supports ~50–100). Default 100.
+        Results per page (Discovery supports ~50-100). Default 100.
     start_date : str
         Beginning of the search window (YYYY-MM-DD). Default "2000-01-01".
     end_date : str | None
@@ -1793,13 +1794,15 @@ def findLidarResources(
     ----------
     train_shp : path to AOI vector (any format readable by GeoPandas)
     catalog_geojson : path to the catalog GeoJSON *or* an already-loaded dict
-    return_full : if True, return list of dicts with name/url/id/count/bounds; else list of URLs
+    return_full : if True, return list of dicts with name/url/id/count/bounds
+                   and optional date; else list of URLs
     verbose : print a few debug lines
 
     Returns
     -------
     List[str]            (URLs)                     if return_full=False (default)
-    List[Dict[str, Any]] (name/url/id/count/bounds) if return_full=True
+    List[Dict[str, Any]] (name/url/id/count/bounds and optional date)
+                         if return_full=True
     """
 
     # --- 1) Load AOI and normalize to EPSG:4326
@@ -1831,13 +1834,14 @@ def findLidarResources(
             shp = shape(geom)
             if shp.is_empty:
                 continue
-            feats.append({
+            feature = {
                 "name": props.get("name"),
                 "url": props.get("url"),
                 "id": props.get("id"),
                 "count": props.get("count"),
                 "geometry": shp
-            })
+            }
+            feats.append(feature)
         except Exception:
             # skip malformed features
             continue
@@ -1869,13 +1873,14 @@ def findLidarResources(
         out = []
         for _, r in hits.iterrows():
             minx, miny, maxx, maxy = r.geometry.bounds
-            out.append({
+            resource = {
                 "name": r["name"],
                 "url": r["url"],
                 "id": r["id"],
                 "count": r["count"],
                 "bounds": (minx, miny, maxx, maxy),
-            })
+            }
+            out.append(resource)
         return out
 
     # default: list of URLs (strings)
@@ -2276,42 +2281,93 @@ def generate_chm_tiles(
 
     return results
 
-def createLidarData(train_shp, catalog_geojson, epsg, lidarTilesPath, anchors_csv, projectPath):
-    # find intersecting lidar scan(s)
+def createLidarData(train_shp, catalog_geojson, epsg, lidarTilesPath, anchors_csv, pathToRScript):
 
-    lidarScans = findLidarResources(train_shp, catalog_geojson)
-    # print(f'lidarScans: {lidarScans}')
+    lidarScans = findLidarResources(
+        train_shp, catalog_geojson, return_full=True
+    )
 
-    # download lidar tifs
-    pathToRScript = os.path.join(projectPath, 'CHM-MS-net-Canopy-Height-Model', 'prepTrainInputs', 'Rutils.R')
-    anchors = pd.read_csv(anchors_csv)
-    generate_chm_tiles(epsg=epsg, ept_urls=lidarScans, points_df=anchors, output_dir=lidarTilesPath, r_script_path=pathToRScript)
-    
-    # # get alignment year
-    # alignmentYear = get_alignment_year(train_shp, catalog_geojson)
+    if not lidarScans:
+        raise ValueError("No LiDAR datasets intersect the training area.")
 
-    # return alignmentYear
+    alignmentYear = get_alignment_year(lidarScans)
 
-
-def get_alignment_year(train_shp, catalog_geojson) :
-    lidarScans = findLidarResources(train_shp, catalog_geojson)
-
-    # Safely extract years from URLs, skipping those without valid years
-    years = []
-    for u in lidarScans:
-        year_matches = re.findall(r'(?<!\d)(?:19|20)\d{2}(?!\d)', u)
+    selected_scans = []
+    for scan in lidarScans:
+        url = scan.get("url", "")
+        name = scan.get("name", "")
+        year_matches = re.findall(r'(?<!\d)(?:19|20)\d{2}(?!\d)', url)
+        if not year_matches:
+            year_matches = re.findall(r'(?<!\d)(?:19|20)\d{2}(?!\d)', name)
         if year_matches:
-            years.append(int(year_matches[-1]))
+            year = int(year_matches[0])  # first year = acquisition year
+            if year == alignmentYear:
+                selected_scans.append(scan)
+
+    if not selected_scans:
+        raise ValueError(
+            f"No LiDAR datasets matched the selected year {alignmentYear}."
+        )
+
+    print(f"\nFiltered to {len(selected_scans)} dataset(s) from year {alignmentYear}:")
+    for s in selected_scans:
+        print(f"  - {s.get('name') or s.get('url')}")
+
+    # Extract URLs for the downloader.
+    lidar_urls = [s["url"] for s in selected_scans if s.get("url")]
+
+    # Generate CHM tiles using the *year‑filtered* URLs.
+    anchors = pd.read_csv(anchors_csv)
+    generate_chm_tiles(
+        epsg=epsg,
+        ept_urls=lidar_urls,
+        points_df=anchors,
+        output_dir=lidarTilesPath,
+        r_script_path=pathToRScript,
+    )
+
+    # Return the full list of intersecting scans (for any downstream use) and the
+    # alignment year that was actually used for filtering.
+    return lidarScans, alignmentYear
+
+
+def get_alignment_year(lidarScans):
+
+    if not lidarScans:
+        print("Warning: No LiDAR scans provided. Using default year 2020.")
+        return 2020
+
+    years = []
+
+    for scan in lidarScans:
+        if not isinstance(scan, dict):
+            print(f"Warning: Expected LiDAR metadata record, got: {scan}")
+            continue
+
+        # Use a friendly identifier for the log output.
+        name = scan.get("name") or scan.get("url") or "<unnamed LiDAR dataset>"
+
+        # Prefer the URL, fall back to the name if needed.
+        url = scan.get("url", "")
+        year_matches = re.findall(r'(?<!\d)(?:19|20)\d{2}(?!\d)', url)
+        if not year_matches:
+            year_matches = re.findall(r'(?<!\d)(?:19|20)\d{2}(?!\d)', name)
+
+        if year_matches:
+            # Take the first year (acquisition year) when multiple appear.
+            year = int(year_matches[0])
+            years.append(year)
+            print(f"Lidar data exists: {name}; year: {year}")
         else:
-            print(f"Warning: Could not extract year from URL: {u}")
-    
-    if years:
-        alignmentYear = round(sum(years) / len(years), 1)
-    else:
-        print("Warning: No years found in lidar scan URLs. Using default year 2020.")
-        alignmentYear = 2020
-    
-    return alignmentYear
+            print(f"Lidar data exists: {name}; capture date: unavailable")
+
+    if not years:
+        print("Warning: No LiDAR years could be extracted. Using default year 2020.")
+        return 2020
+
+    alignment_year = max(years)
+    print(f"Using maximum LiDAR year: {alignment_year}")
+    return alignment_year
 
 def merge_chm_tiles(
     input_folder: str,
@@ -2603,12 +2659,10 @@ def makeInfList(base_dir: str, site):
     # Write to output files
     write_to_file(common_files_list, os.path.join(base_dir, f'{site}_inflist.txt'))
 
-def genTreelist(tifPath, projectPath, rdsPath=None, epsg=None, filename = 'treelist.csv'):
-    pathToRScript = os.path.join(projectPath, 'CHM-MS-net-Canopy-Height-Model', 'prepTrainInputs', 'Rutils.R')
+def genTreelist(tifPath, pathToRScript, rdsPath=None, epsg=None, filename = 'treelist.csv'):
     outdir = os.path.dirname(tifPath)
     treelist_csv = os.path.join(outdir, filename)
 
-    #print("NOTE: skipping R subprocess for treelist this time...")
     print('Beginning "treelist" R subprocess...', flush=True)
     proc = subprocess.run(
         [
@@ -3176,3 +3230,70 @@ def get_pca_dims(channels):
             pca_dims.append(int(dim))
 
     return pca_dims
+
+
+def crop_to_aoi(input_tif: str, aoi_geojson: str, output_tif: str, epsg: int) -> str:
+    """
+    Crop (mask) a raster so that only the area inside the original AOI polygon
+    is kept.  Pixels outside the polygon are set to the raster's nodata value.
+
+    Parameters
+    ----------
+    input_tif : str
+        Path to the merged CHM raster.
+    aoi_geojson : str
+        Path to the original AOI file
+    output_tif : str
+        Destination raster - will have the same CRS, resolution, dtype as the
+        input but only the polygon interior will contain data.
+    epsg : int
+        Target EPSG.  The AOI will be re-projected
+        to this CRS if it is not already.
+
+    Returns
+    -------
+    str
+        The path to the newly written raster (identical to ``output_tif``).
+    """
+
+    # -----------------------------------------------------------------
+    # Load AOI and ensure it is in the same projected CRS as the raster
+    # -----------------------------------------------------------------
+    aoi = gpd.read_file(aoi_geojson)
+    target_crs = CRS.from_epsg(int(epsg))
+
+    if aoi.crs != target_crs:
+        aoi = aoi.to_crs(target_crs)
+
+    # -----------------------------------------------------------------
+    # Mask the raster with the polygon geometry
+    # -----------------------------------------------------------------
+    with rasterio.open(input_tif) as src:
+        # ``mask`` returns a masked array and the new affine transform
+        out_image, out_transform = mask(
+            src,
+            aoi.geometry,
+            crop=True,                 # crop to the smallest window that contains the polygon
+            nodata=src.nodata,
+            all_touched=False          # only pixels whose centre falls inside are kept
+        )
+
+        # Preserve the original metadata but replace size/transform
+        out_meta = src.meta.copy()
+        out_meta.update(
+            {
+                "height": out_image.shape[1],
+                "width": out_image.shape[2],
+                "transform": out_transform,
+                "compress": "lzw",
+            }
+        )
+
+    # -----------------------------------------------------------------
+    # Write the masked raster
+    # -----------------------------------------------------------------
+    with rasterio.open(output_tif, "w", **out_meta) as dst:
+        dst.write(out_image)
+
+    print(f"Masked raster saved to: {output_tif}")
+    return output_tif
