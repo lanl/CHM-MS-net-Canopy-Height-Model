@@ -16,6 +16,7 @@ import time
 import json
 import rasterio
 import glob
+from treelist_evaluation import evaluate_sites
 
 # import site_config from higher scope
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -53,6 +54,7 @@ def main() :
     project_parent = os.path.abspath(os.path.join(project_dir, ".."))
     print(f"project_parent: {project_parent}")
     pathToLidarResources = os.path.join(project_parent, "prepTrainInputs", "resources.geojson")
+    pathToRScript = os.path.join(project_parent, 'CHM-MS-net-Canopy-Height-Model', 'prepTrainInputs', 'Rutils.R')
 
     # Parse command line arguments FIRST
     parser = argparse.ArgumentParser(description='Run SatCHM inference for a specific site')
@@ -67,9 +69,27 @@ def main() :
     parser.add_argument('--seed', type=int, default=42,
                     help='Random seed for reproducibility (default: 42)')
     parser.add_argument('--model-loc', type=str, required=True)
+    parser.add_argument('--output-dir', type=str, default=None,
+                        help='Directory to save tree list evaluation outputs (default: project_parent)')
+    parser.add_argument('--outlier-filter', type=int, default=None, choices=[95, 99],
+                        help='Apply symmetric percentile filtering to treelist statistics (95 or 99; default: no filtering)')
     parser.add_argument("--eval-only", action="store_true")
 
+    # Parse arguments and set up variables
     args = parser.parse_args()
+    sites = args.sites
+    # Use command line args or defaults
+    SCALING_METHOD = args.scale
+    FEATHER_CONST = args.feather_const
+    NORMALIZATION_CONST = args.norm_const
+    SEED = args.seed
+    pathToWeights = args.model_loc
+    outlier_percentile = args.outlier_filter
+    rdsPath = None
+    if args.eval_only:
+        rdsPath = None  # placeholder – evaluation only mode not yet fully implemented
+    # Determine output directory for evaluation (default to project_parent)
+    output_dir = args.output_dir if args.output_dir else project_parent
     sites = args.sites
     # Use command line args or defaults
     SCALING_METHOD = args.scale
@@ -124,15 +144,21 @@ def main() :
         inf_shp_output_path = root + "_utm.geojson"
         infAnchorsPath = os.path.join(project_parent, 'downloads', site, 'infShape', f'{site}_infAnchors.csv')
         lidarTilesPath = os.path.join(inf_data_path, 'chm')
-        dem_download_path = os.path.join(project_parent, 'downloads', site, 'dem', f'{site}_dem_INF_download.tif')
+        dem_download_dir = os.path.join(project_parent, 'downloads', site, 'dem')
+        dem_download_path = os.path.join(dem_download_dir, f'{site}_dem_INF_download.tif')
         dem_UTM_path = os.path.join(project_parent, 'downloads', site, 'dem', f'{site}_dem_INF_UTM.tif')
         dem_prenorm_tiles_path = os.path.join(inf_data_path, 'dem_prenorm')
         dem_tiles_path = os.path.join(inf_data_path, 'dem')
         pathToWvimg = os.path.join(project_parent, 'downloads', site, 'wvimgInf')
         prewvimgPath = os.path.join(inf_data_path, 'prewvimg')
         metadataPath = os.path.join(project_parent, 'downloads', site, 'metadata', 'DGTilesMetadata.json')
-        outputRasterPath = os.path.join(inf_data_path, 'INF_chm_pred_merged.tif')
-        croppedOutputRasterPath = os.path.join(inf_data_path, f'{site}_merged_CHM_inf.tif')
+        obsOutputDir = os.path.join(inf_data_path, 'obs')
+        predOutputDir = os.path.join(inf_data_path, 'pred')
+        predOutputRasterPath = os.path.join(predOutputDir, 'INF_chm_merged.tif')
+        predCroppedOutputRasterPath = os.path.join(predOutputDir, f'{site}_merged_CHM_inf.tif')
+        obs_chm_folder = os.path.join(project_parent, f'{site}_data', 'chm')
+        obsOutputRasterPath = os.path.join(project_parent, f'{site}_data', f'{site}_observed_CHM_obs.tif')
+        obsCroppedOutputRasterPath = os.path.join(obsOutputDir, f'{site}_merged_CHM_inf.tif')
 
         # AlphaEarth paths
         ae_tiles_path = os.path.join(inf_data_path, 'ae')
@@ -198,7 +224,10 @@ def main() :
                 inf_data_path,
                 dem_tiles_path,
                 dem_prenorm_tiles_path,
-                prewvimgPath
+                prewvimgPath,
+                obsOutputDir,
+                predOutputDir,
+                dem_download_dir
             ]:
                 if not os.path.isdir(path):
                     print(f"Creating directory: {path}")
@@ -213,19 +242,13 @@ def main() :
             # Create points to center tiles along (anchors)
             print('Creating set of tile anchors')
 
-            if not os.path.isfile(inf_shp_output_path) :
-                # Create inference shape
-                print('No existing utm projection of inference shape. Creating new utm inference shape...')
-                print(f'Using inferenceShpPath: {inferenceShpPath}')
-                utils.saveInfShape(
-                    input_path=inferenceShpPath,
-                    output_path=inf_shp_output_path,
-                    buffer_meters=512,
-                    epsg=epsg,
-                )
-                print(f'Saved inference shape to: {inf_shp_output_path}')
-            else :
-                print("Using existing utm inference shape...")
+            print(f'Using inferenceShpPath: {inferenceShpPath}')
+            utils.saveInfShape(
+                input_path=inferenceShpPath,
+                output_path=inf_shp_output_path,
+                buffer_meters=512,
+                epsg=epsg,
+            )
 
             tileAnchors = utils.genTileAnchors(shp_path=inf_shp_output_path, out_path=infAnchorsPath, buffer = 32)
             print(f'Saved tile anchors to {infAnchorsPath}')
@@ -286,13 +309,9 @@ def main() :
             ################## RENAME AND CREATE LISTS ##############
 
             # Extract year from wvimg metadata for AlphaEarth alignment
-            with open(metadataPath, 'r') as f:
-                metadata = json.load(f)
-            # Get the first tile's date and extract the year
-            first_tile = next(iter(metadata.values()))
-            date_str = first_tile['date']  # Format: 'YYYY-MM-DD'
-            inferenceYear = float(date_str.split('-')[0])
-            print(f'Extracted inference year from wvimg metadata: {inferenceYear}')
+            wvimgYear = utils.getWvimgYear(metadataPath=metadataPath)
+            wvimgYear = int(wvimgYear)
+            print(f'Extracted year from wvimg metadata: {wvimgYear}')
 
             ################### PROCESS ALPHAEARTH DATA (CONDITIONAL) #####################
             
@@ -307,9 +326,9 @@ def main() :
                 print(f'Fetching AlphaEarth data to {source_raster}')
                 
                 result = fetch_alphaEarth(
-                    geojson_path=inferenceShpPath,
+                    geojson_path=inf_shp_output_path,
                     save_path=str(source_raster),
-                    year=int(inferenceYear),
+                    year=int(wvimgYear),
                     epsg=epsg,
                     sa_key_path=geeKey,
                     project=geeProject,
@@ -397,25 +416,102 @@ def main() :
 
             ############### MERGE CHM TILES ######################
 
-            print('Merging chm tiles')
+            print('Merging chm prediction tiles')
             utils.merge_chm_tiles(
                 input_folder=os.path.join(inf_data_path, 'chm_preds'),
-                output_tif=outputRasterPath,
+                output_tif=predOutputRasterPath,
                 b=FEATHER_CONST,
             )
-            print(f'Merged chm tiles, saved merged raster to {outputRasterPath}')
+            print(f'Merged chm prediction tiles, saved merged raster to {predOutputRasterPath}')
 
-            ###### CROP CHM RASTER BACK TO ORIGINAL SHAPE ########
-            print('Cropping predicted CHM tif back to original shape')
-            utils.cropTif(inputTif=outputRasterPath, shp=inferenceShpPath, outputTif=croppedOutputRasterPath, epsg=epsg)
-            print(f'Cropped CHM tif, saved to {croppedOutputRasterPath}')
+            ###### CROP CHM PREDICTION RASTER BACK TO ORIGINAL SHAPE ########
+
+            print('Cropping observed CHM tif back to original shape')
+            utils.cropTif(inputTif=predOutputRasterPath, shp=inferenceShpPath, outputTif=predCroppedOutputRasterPath, epsg=epsg)
+            print(f'Cropped CHM tif, saved to {predCroppedOutputRasterPath}')
+
+
+            # masked_output = os.path.join(inf_data_path, f'{site}_CHM_masked.tif')
+            # utils.crop_to_aoi(
+            #     input_tif=predOutputRasterPath,       # INF_chm_pred_merged.tif
+            #     aoi_geojson=inferenceShpPath,
+            #     output_tif=masked_output,
+            #     epsg=epsg,
+            # )
+            # croppedOutputRasterPath = masked_output
 
             ####### SCALE RASTER WITH RESPECT TO TRAINING DATA #######
 
-            print(f'Scaling predicted CHM tif with respect to training data CHM (method: {SCALING_METHOD})')
-            training_chm_path = os.path.join(project_parent, f'{site}_data', 'chm')
-            utils.scale_tif(geojson_path=inf_shp_output_path, input_lidar_tifs_folder_path=training_chm_path, pred_lidar_tif_path=croppedOutputRasterPath, output_path=scaledOutputRasterPath, option=SCALING_METHOD)
-            print(f'Scaled CHM tif, saved to {scaledOutputRasterPath}')
+ 
+            # print(f'Scaling predicted CHM tif with respect to training data CHM (method: {SCALING_METHOD})')
+            # training_chm_path = os.path.join(project_parent, f'{site}_data', 'chm')
+            # utils.scale_tif(geojson_path=inf_shp_output_path, input_lidar_tifs_folder_path=training_chm_path, pred_lidar_tif_path=croppedOutputRasterPath, output_path=scaledOutputRasterPath, option=SCALING_METHOD)
+            # print(f'Scaled CHM tif, saved to {scaledOutputRasterPath}')
+
+            
+            
+            if not os.path.exists(obsOutputRasterPath):
+                if not os.path.isdir(obs_chm_folder):
+                    raise FileNotFoundError(
+                        f"Observed CHM tiles not found: {obs_chm_folder}\n"
+                        f"Ground truth data is required for evaluation."
+                    )
+                print(f"Merging observed CHM tiles from: {obs_chm_folder}")
+                utils.merge_chm_tiles(
+                    input_folder=obs_chm_folder,
+                    output_tif=obsOutputRasterPath,
+                    b=FEATHER_CONST
+                )
+                print(f"Merged observed CHM to: {obsOutputRasterPath}")
+            else:
+                print(f"Using existing observed CHM: {obsOutputRasterPath}")
+            
+            ###### CROP CHM OBSERVATION RASTER BACK TO ORIGINAL SHAPE ########
+            
+            print('Cropping predicted CHM tif back to original shape')
+            utils.cropTif(inputTif=obsOutputRasterPath, shp=inferenceShpPath, outputTif=obsCroppedOutputRasterPath, epsg=epsg)
+            print(f'Cropped CHM tif, saved to {obsCroppedOutputRasterPath}')
+
+
+        ############# GENERATE TREELISTS ####################
+
+        # Observation
+        print('Generating observation treelist with cloud2trees. This will take a while...')
+        if rdsPath != None:
+            utils.genTreelist(tifPath=obsCroppedOutputRasterPath, pathToRScript=pathToRScript, rdsPath=rdsPath, epsg=epsg)
+        else:
+            utils.genTreelist(tifPath=obsCroppedOutputRasterPath, pathToRScript=pathToRScript, epsg=epsg)
+        # Rename output files to include the "obs_" prefix for clarity
+        obs_dir = os.path.dirname(obsCroppedOutputRasterPath)
+        # Rename treelist CSV
+        src_treelist = os.path.join(obs_dir, 'treelist.csv')
+        dst_treelist = os.path.join(obs_dir, 'obs_treelist.csv')
+        if os.path.exists(src_treelist):
+            os.rename(src_treelist, dst_treelist)
+        # Rename any crown geopackage files produced by cloud2trees
+        for crown_path in glob.glob(os.path.join(obs_dir, 'final_detected_crowns_*.gpkg')):
+            crown_name = os.path.basename(crown_path)
+            new_crown_name = f'obs_{crown_name}'
+            os.rename(crown_path, os.path.join(obs_dir, new_crown_name))
+        print(f'Generated observation treelist and crowns, saved to {dst_treelist}')
+
+        # Prediction
+        print('Generating prediction treelist with cloud2trees. This will take a while...')
+        if rdsPath != None:
+            utils.genTreelist(tifPath=predCroppedOutputRasterPath, pathToRScript=pathToRScript, rdsPath=rdsPath, epsg=epsg)
+        else:
+            utils.genTreelist(tifPath=predCroppedOutputRasterPath, pathToRScript=pathToRScript, epsg=epsg)
+        # Rename output files to include the "pred_" prefix for clarity
+        pred_dir = os.path.dirname(predCroppedOutputRasterPath)
+        src_treelist = os.path.join(pred_dir, 'treelist.csv')
+        dst_treelist = os.path.join(pred_dir, 'pred_treelist.csv')
+        if os.path.exists(src_treelist):
+            os.rename(src_treelist, dst_treelist)
+        for crown_path in glob.glob(os.path.join(pred_dir, 'final_detected_crowns_*.gpkg')):
+            crown_name = os.path.basename(crown_path)
+            new_crown_name = f'pred_{crown_name}'
+            os.rename(crown_path, os.path.join(pred_dir, new_crown_name))
+        print(f'Generated prediction treelist and crowns, saved to {dst_treelist}')
 
         
         ############### EVALUATE AND GENERATE PLOTS ######################
@@ -425,38 +521,18 @@ def main() :
         print('='*60 + '\n')
         
         # Check if predicted CHM exists
-        if not os.path.exists(scaledOutputRasterPath):
+        if not os.path.exists(predOutputRasterPath):
             raise FileNotFoundError(
-                f"Predicted CHM not found: {scaledOutputRasterPath}\n"
+                f"Predicted CHM not found: {predOutputRasterPath}\n"
                 f"Please run inference first without --eval-only flag."
             )
-        
-        # Merge observed CHM if needed
-        observed_raster = os.path.join(project_parent, f'{site}_data', f'{site}_observed_CHM_merged.tif')
-        obs_chm_folder = os.path.join(project_parent, f'{site}_data', 'chm')
-        
-        if not os.path.exists(observed_raster):
-            if not os.path.isdir(obs_chm_folder):
-                raise FileNotFoundError(
-                    f"Observed CHM tiles not found: {obs_chm_folder}\n"
-                    f"Ground truth data is required for evaluation."
-                )
-            print(f"Merging observed CHM tiles from: {obs_chm_folder}")
-            utils.merge_chm_tiles(
-                input_folder=obs_chm_folder,
-                output_tif=observed_raster,
-                b=FEATHER_CONST
-            )
-            print(f"Merged observed CHM to: {observed_raster}")
-        else:
-            print(f"Using existing observed CHM: {observed_raster}")
         
         # Generate full evaluation plot
         plot_output_path = os.path.join(inf_data_path, f'{site}_site_plot.png')
         print(f"\nGenerating evaluation plot...")
         plot_site_inference(
-            predicted_raster=scaledOutputRasterPath,
-            observed_raster=observed_raster,
+            predicted_raster=predCroppedOutputRasterPath,
+            observed_raster=obsCroppedOutputRasterPath,
             imagery_raster=None,
             output_path=plot_output_path,
             title=f"Site: {site}",
@@ -467,7 +543,16 @@ def main() :
         clean_png_path = os.path.join(inf_data_path, f'{site}_prediction_only_plot.png')
         print(f"\nGenerating clean prediction image...")
         save_clean_prediction_png(
-            predicted_raster=scaledOutputRasterPath,
+            predicted_raster=predCroppedOutputRasterPath,
+            output_path=clean_png_path,
+            downsample_factor=4
+        )
+
+        # Generate clean prediction PNG
+        clean_png_path = os.path.join(inf_data_path, f'{site}_observation_only_plot.png')
+        print(f"\nGenerating clean prediction image...")
+        save_clean_prediction_png(
+            predicted_raster=obsCroppedOutputRasterPath,
             output_path=clean_png_path,
             downsample_factor=4
         )
@@ -477,16 +562,21 @@ def main() :
         print(f"  - Full plot: {plot_output_path}")
         print(f"  - Clean PNG: {clean_png_path}")
         print(f"{'='*60}\n")
-
-        ############# GENERATE TREELIST ####################
-
-        # print('Generating treelist with cloud2trees. This will take a while...')
-        # if rdsPath != None:
-        #     utils.genTreelist(tifPath=croppedOutputRasterPath, projectPath=project_parent, rdsPath=rdsPath, epsg=epsg)
-        # else:
-        #     utils.genTreelist(tifPath=croppedOutputRasterPath, projectPath=project_parent, epsg=epsg)
-        # print(f'Generated treelist, saved to {os.path.join(os.path.dirname(croppedOutputRasterPath), "treelist.csv")}')
-
+        
+    # ----------------------------------------------------------
+    # Tree list evaluation across all processed sites (executed once after all sites)
+    # ----------------------------------------------------------
+    try:
+        evaluate_sites(
+            sites=sites,
+            project_parent=project_parent,
+            model_loc=pathToWeights,
+            output_dir=output_dir,
+            outlier_percentile=outlier_percentile
+        )
+    except Exception as e:
+        print(f"Warning: Tree list evaluation failed: {e}")
+        print("Continuing without aggregated evaluation...")
 
 # Standard multiprocessing guard
 if __name__ == "__main__":

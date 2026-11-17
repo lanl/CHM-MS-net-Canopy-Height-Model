@@ -23,6 +23,7 @@ from typing import List, Dict, Optional, Tuple
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+import rasterio
 
 # ------------------------------------------------------------
 # Metric computation helpers
@@ -167,6 +168,54 @@ def _compute_column_stats(
     }
 
 
+def _mask_predicted_treelist(
+    pred_treelist_path: str,
+    observed_chm_path: str,
+) -> Tuple[pd.DataFrame, Dict[str, int]]:
+    """Retain predicted trees located in valid observed-CHM pixels.
+
+    The source predicted treelist is only read; it is never modified. The
+    returned dataframe is written by the caller as the evaluation treelist.
+    """
+    pred_df = pd.read_csv(pred_treelist_path)
+    original_count = len(pred_df)
+
+    required_columns = {"tree_x", "tree_y"}
+    if not required_columns.issubset(pred_df.columns):
+        raise ValueError(
+            "Predicted treelist must contain tree_x and tree_y columns "
+            "to apply observed-coverage masking."
+        )
+
+    with rasterio.open(observed_chm_path) as observed_src:
+        observed_data = observed_src.read(1, masked=True)
+        valid_mask = ~np.ma.getmaskarray(observed_data)
+        valid_mask &= np.isfinite(np.ma.getdata(observed_data))
+        transform = observed_src.transform
+
+        x_values = pd.to_numeric(pred_df["tree_x"], errors="coerce").to_numpy()
+        y_values = pd.to_numeric(pred_df["tree_y"], errors="coerce").to_numpy()
+        columns, rows = (~transform) * (x_values, y_values)
+        rows = np.floor(rows).astype(np.int64)
+        columns = np.floor(columns).astype(np.int64)
+
+        in_bounds = (
+            (rows >= 0)
+            & (rows < valid_mask.shape[0])
+            & (columns >= 0)
+            & (columns < valid_mask.shape[1])
+        )
+        valid_tree_locations = np.zeros(len(pred_df), dtype=bool)
+        valid_tree_locations[in_bounds] = valid_mask[rows[in_bounds], columns[in_bounds]]
+
+    masked_df = pred_df.loc[valid_tree_locations].copy()
+    return masked_df, {
+        "original_pred_count": int(original_count),
+        "masked_pred_count": int(len(masked_df)),
+        "removed_pred_count": int(original_count - len(masked_df)),
+    }
+
+
 def _compute_site_metrics(
     site: str,
     inf_data_path: str,
@@ -190,6 +239,8 @@ def _compute_site_metrics(
     """
     obs_treelist = os.path.join(inf_data_path, "obs", "obs_treelist.csv")
     pred_treelist = os.path.join(inf_data_path, "pred", "pred_treelist.csv")
+    observed_chm = os.path.join(inf_data_path, "obs", f"{site}_merged_CHM_inf.tif")
+    masked_pred_treelist = os.path.join(inf_data_path, "pred", "pred_treelist_masked.csv")
 
     if not os.path.exists(obs_treelist):
         print(f"Warning: Observed treelist not found for site {site}")
@@ -200,7 +251,10 @@ def _compute_site_metrics(
 
     try:
         obs_df = pd.read_csv(obs_treelist)
-        pred_df = pd.read_csv(pred_treelist)
+        if not os.path.exists(observed_chm):
+            raise FileNotFoundError(f"Observed CHM not found: {observed_chm}")
+        pred_df, mask_info = _mask_predicted_treelist(pred_treelist, observed_chm)
+        pred_df.to_csv(masked_pred_treelist, index=False)
     except Exception as exc:
         raise RuntimeError(f"Error reading treelists for site {site}: {exc}") from exc
 
@@ -213,6 +267,7 @@ def _compute_site_metrics(
         "obs_count": obs_count,
         "pred_count": pred_count,
         "recovery_rate": recovery,
+        "coverage_mask": mask_info,
         "height_stats": {
             "obs": _compute_column_stats(obs_df, "tree_height_m", outlier_percentile),
             "pred": _compute_column_stats(pred_df, "tree_height_m", outlier_percentile),
@@ -223,6 +278,7 @@ def _compute_site_metrics(
         },
         "obs_path": obs_treelist,
         "pred_path": pred_treelist,
+        "pred_eval_path": masked_pred_treelist,
     }
 
 
@@ -272,7 +328,7 @@ def _plot_tree_counts(metrics: List[Dict], output_path: str, model_name: Optiona
     ax1.set_ylabel("Tree Count", fontsize=12)
     ax1.set_xlabel("Site", fontsize=12)
     ax1.set_xticks(x)
-    ax1.set_xticklabels(sites, rotation=45, ha="right")
+    ax1.set_xticklabels(sites, rotation=45, ha="right", fontsize=12)
     ax1.legend(loc="upper left", fontsize=10)
     ax1.grid(axis="y", alpha=0.3)
 
@@ -303,7 +359,7 @@ def _plot_tree_counts(metrics: List[Dict], output_path: str, model_name: Optiona
     ax2.set_ylabel("Recovery Rate (%)", fontsize=12)
     ax2.set_xlabel("Site", fontsize=12)
     ax2.set_xticks(x)
-    ax2.set_xticklabels(sites, rotation=45, ha="right")
+    ax2.set_xticklabels(sites, rotation=45, ha="right", fontsize=12)
     ax2.set_title("Tree Recovery Rate by Site", fontsize=12, weight="bold", pad=10)
     ax2.grid(axis="y", alpha=0.3)
 
@@ -392,7 +448,7 @@ def _plot_boxplot_comparison(
     from matplotlib.patches import Patch
 
     ax.set_xticks((positions_obs + positions_pred) / 2)
-    ax.set_xticklabels(sites, rotation=45, ha="right")
+    ax.set_xticklabels(sites, rotation=45, ha="right", fontsize=12)
     ax.set_ylabel(ylabel, fontsize=12)
     ax.set_xlabel("Site", fontsize=12)
     ax.set_title(title, fontsize=14, weight="bold")
@@ -509,6 +565,7 @@ def evaluate_sites(
     print("=" * 70)
     print(f"Sites: {', '.join(sites)}")
     print(f"Model: {model_loc}")
+    print("Observed-coverage masking: enabled")
     print(f"Outlier filtering: {outlier_percentile or 'disabled'}")
     print("=" * 70 + "\n")
 
@@ -522,6 +579,12 @@ def evaluate_sites(
             metrics_list.append(site_metrics)
             print(f"  Observed:  {site_metrics['obs_count']:>6,} trees")
             print(f"  Predicted: {site_metrics['pred_count']:>6,} trees")
+            mask_info = site_metrics["coverage_mask"]
+            if mask_info["removed_pred_count"] > 0:
+                print(
+                    f"  Coverage mask: removed {mask_info['removed_pred_count']:,} "
+                    f"of {mask_info['original_pred_count']:,} predicted trees"
+                )
             print(f"  Recovery:  {site_metrics['recovery_rate']:.1f}%")
             if outlier_percentile is not None:
                 height_obs = site_metrics["height_stats"].get("obs")
@@ -590,6 +653,7 @@ def evaluate_sites(
         f.write("=" * 70 + "\n")
         f.write(f"Model: {model_loc}\n")
         f.write(f"Sites evaluated: {len(metrics_list)}\n")
+        f.write("Observed-coverage masking: Enabled\n")
         if outlier_percentile is None:
             f.write("Outlier filtering: Disabled\n")
         else:
@@ -602,6 +666,11 @@ def evaluate_sites(
             f.write("Tree Counts:\n")
             f.write(f"  Observed:  {m['obs_count']:,}\n")
             f.write(f"  Predicted: {m['pred_count']:,}\n")
+            mask_info = m["coverage_mask"]
+            f.write(
+                f"  Predicted before mask: {mask_info['original_pred_count']:,}\n"
+                f"  Predicted outside observed coverage: {mask_info['removed_pred_count']:,}\n"
+            )
             f.write(f"  Recovery:  {m['recovery_rate']:.2f}%\n\n")
             _write_stat_report_section(f, "Tree Height (m)", m["height_stats"])
             _write_stat_report_section(f, "Crown Area (m²)", m["crown_stats"])
