@@ -94,6 +94,8 @@ def parse_args(argv=None):
     # EVALUATION PARAMETERS
     parser.add_argument("--eval-only", action="store_true")         # defaults to False. True when passed       # FIXME: to be removed
     parser.add_argument("--model-loc", default=None, type=str)       # used alongside --eval-only to specify your model_loc
+    parser.add_argument("--output-dir", default=None, type=str)
+    parser.add_argument('--outlier-filter', type=int, default=None, choices=[95, 99])
 
     # TESTING/RESTART PARAMETERS
     parser.add_argument("--num-model", default=0, type=int)

@@ -30,7 +30,7 @@ def main():
     # load global variables
     global_vars = load_global_vars()
     project_dir = global_vars['project_dir']
-    default_channels = global_vars['channels']
+    # default_channels = global_vars['channels']
     openTopoAPIkey = global_vars['openTopoAPIkey']
     geeKey = global_vars['geeKey']
     geeProject = global_vars['geeProject']
@@ -44,17 +44,14 @@ def main():
     project_parent = os.path.abspath(os.path.join(project_dir, ".."))
     print(f"project_parent: {project_parent}")
     pathToLidarResources = os.path.join(project_dir, "prepTrainInputs", "resources.geojson")
-    pathToRScript = os.path.join(projectPath, 'CHM-MS-net-Canopy-Height-Model', 'prepTrainInputs', 'Rutils.R')
+    pathToRScript = os.path.join(project_parent, 'CHM-MS-net-Canopy-Height-Model', 'prepTrainInputs', 'Rutils.R')
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Prepare training data (step 1) for a list of sites')
     parser.add_argument('--sites', type=str, nargs='+', required=True,
                        help='Site code (e.g., ws, lm, qm). Overrides .env file if provided.')
-    parser.add_argument('--channels', type=str, choices=default_channels, nargs='+', default=default_channels, required=False,
-                        help=f'Used within the pca process. Choices are specified in config.json')
     args = parser.parse_args()
     sites = args.sites
-    channels = args.channels
 
     # for each site in sites, generate data
     for site in sites :
@@ -183,10 +180,11 @@ def main():
                 anchors_csv=trainAnchorsPath,
             )
             print(f'Saved lidar tiles to: {lidar_tiles_path}')
+            #alignmentYear = 2020       # FIXME: must determine lidar date from custom path
 
         else:
             print('Downloading lidar data from USGS 3DEP')
-            # ``createLidarData`` now returns both the full list of intersecting
+            # createLidarData now returns both the full list of intersecting
             # scans and the alignment year that was used for filtering.
             lidarScans, alignmentYear = utils.createLidarData(
                 trainShpPath,
@@ -199,9 +197,6 @@ def main():
             utils.remove_rasters_with_nodata(lidar_tiles_path, dry_run=False)
             shutil.rmtree(os.path.join(lidar_tiles_path, '_laz_tmp'), ignore_errors=True)
             print(f'Saved lidar data to: {lidar_tiles_path}')
-        if 'alignmentYear' not in locals():
-            # When custom LiDAR is used there is no associated year; default to 2020.
-            alignmentYear = 2020
 
         
         ################## PROCESS DEM DATA ###########################
@@ -254,66 +249,12 @@ def main():
         shutil.rmtree(DEM_prenorm_tiles_path, ignore_errors=True)
         print(f'Saved normalized DEM tiles to {DEM_tiles_path}')
 
-        # call above (or from the custom‑LiDAR branch, where it is not needed).
-        # conditional if AE is being used
-        if any("base-ae" in item for item in channels) :
-            os.makedirs(ae_tiles_path, exist_ok=True)
-
-            # Download AlphaEarth Embeddings
-            print(f'Fetching AlphaEarth data to {source_raster}')
-            
-            result = fetch_alphaEarth(
-                geojson_path=inferenceShpPath,
-                save_path=str(source_raster),
-                year=alignmentYear,
-                epsg=epsg,
-                sa_key_path=geeKey,
-                project=geeProject,
-                temp_dir=ae_tiles_path
-            )
-            # Validate source
-            with rasterio.open(result) as src:
-                print(f"Source: {src.count} bands, {src.dtypes[0]}, {src.width}x{src.height}, {src.res}")
-                # Expected: Source: 64 bands, int8, WxH, (10.0, 10.0)
-
         print('==========================================================')
         print(f'SITE: {site}')
         print(f'Align satellite imagery to year: {alignmentYear}')
         print(f'Train shape saved at: {trainShpPath}')
         print(f'Inference shape saved at: {inf_shp_output_path}')
         print('==========================================================')
-
-    # Unified PCA processing for all sites (works for 1 or more sites)
-    # This runs AFTER all sites have their data prepared
-    if any("base-ae-" in item for item in channels):
-        pca_dims = utils.get_pca_dims(channels)
-        
-        print('\n' + '='*60)
-        print(f'FITTING PCA MODEL FOR SITES: {sites}')
-        print(f'Dimensions: {pca_dims}')
-        print('='*60)
-        
-        # Fit PCA on all sites combined
-        pca_models = fit_pca_model(
-            sites=sites,
-            project_parent=project_parent,
-            target_dims=pca_dims,
-            sample_size_per_site=100000,
-            chunk_size=1000
-        )
-        
-        # Apply PCA transformation to each site's data
-        print('\nApplying PCA transformation to each site...')
-        for site in sites:
-            apply_pca_to_site(
-                site=site,
-                project_parent=project_parent,
-                pca_models_dict=pca_models,
-                chunk_size=1000
-            )
-        
-        ordered_name = utils.order_sites(sites)
-        print(f'\n✓ PCA processing complete. Models saved to: prepTrainInputs/pca_models/{ordered_name}/')
 
 
 # Standard multiprocessing guard

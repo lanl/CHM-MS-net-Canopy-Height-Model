@@ -2662,6 +2662,8 @@ def makeInfList(base_dir: str, site):
 def genTreelist(tifPath, pathToRScript, rdsPath=None, epsg=None, filename = 'treelist.csv'):
     outdir = os.path.dirname(tifPath)
     treelist_csv = os.path.join(outdir, filename)
+    min_height = 4
+    min_crown_area = 10
 
     print('Beginning "treelist" R subprocess...', flush=True)
     proc = subprocess.run(
@@ -2670,7 +2672,9 @@ def genTreelist(tifPath, pathToRScript, rdsPath=None, epsg=None, filename = 'tre
             pathToRScript,
             "treelist",
             "--chm", tifPath,
-            "--outdir", outdir
+            "--outdir", outdir,
+            "--min_height", str(min_height),
+            "--min_crown_area", str(min_crown_area),
         ],
         check=False
     )
@@ -3297,3 +3301,14 @@ def crop_to_aoi(input_tif: str, aoi_geojson: str, output_tif: str, epsg: int) ->
 
     print(f"Masked raster saved to: {output_tif}")
     return output_tif
+
+
+def getWvimgYear(metadataPath) :
+    # Extract year from wvimg metadata for AlphaEarth alignment
+    with open(metadataPath, 'r') as f:
+        metadata = json.load(f)
+    # Get the first tile's date and extract the year
+    first_tile = next(iter(metadata.values()))
+    date_str = first_tile['date']  # Format: 'YYYY-MM-DD'
+    year = float(date_str.split('-')[0])
+    return year

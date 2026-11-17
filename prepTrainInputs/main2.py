@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 import shutil
 import utils
 import time
+from rasterAE import fetch_alphaEarth
 from utils import tileAlphaEarth
 import rasterio
 import sys
@@ -44,7 +45,7 @@ def main() :
     project_parent = os.path.abspath(os.path.join(project_dir, ".."))
     print(f"project_parent: {project_parent}")
     pathToLidarResources = os.path.join(project_parent, "prepTrainInputs", 'resources.geojson')
-    pathToRScript = os.path.join(projectPath, 'CHM-MS-net-Canopy-Height-Model', 'prepTrainInputs', 'Rutils.R')
+    pathToRScript = os.path.join(project_parent, 'CHM-MS-net-Canopy-Height-Model', 'prepTrainInputs', 'Rutils.R')
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Prepare training data (step 1) for a list of sites')
@@ -120,9 +121,38 @@ def main() :
             utils.tileRaster(pathToRaster=os.path.join(wvimgMergedPath, tif), outputPath=os.path.join(site_data_path, 'wvimg'), dataType = 'wvimg', anchors_csv=trainAnchorsPath)
         print(f'Saved wvimg tiles to: {site_data_path}/wvimg/')
 
-
         # conditional if AE is being used
         if any("base-ae" in item for item in channels) :
+
+            os.makedirs(ae_tiles_path, exist_ok=True)
+            wvimgYear = utils.getWvimgYear(metadataPath=metadataPath)
+            wvimgYear = int(wvimgYear)
+            print(f'Extracted year from wvimg metadata: {wvimgYear}')
+
+            # Download AlphaEarth Embeddings
+            print(f'Fetching AlphaEarth data to {source_raster}')
+            result = fetch_alphaEarth(
+                geojson_path=inferenceShpPath,
+                save_path=str(source_raster),
+                year=wvimgYear,
+                epsg=epsg,
+                sa_key_path=geeKey,
+                project=geeProject,
+                temp_dir=ae_tiles_path
+            )
+            # Validate source
+            with rasterio.open(result) as src:
+                print(f"Source: {src.count} bands, {src.dtypes[0]}, {src.width}x{src.height}, {src.res}")
+                # Expected: Source: 64 bands, int8, WxH, (10.0, 10.0)
+
+
+            # PSEUDO CODE ENTRY POINT
+            # call a function from utils.py
+            # this function will read the source raster file given by 'source_raster'
+            # the function will get the average, meadian, and std deviation (or some metric of spread)
+            # of the 64-channel aef embeddings, saved as probably a csv
+
+
             # tile out non-PCA AlpahEarth
             print("Tiling non-PCA AlphaEarth embeddings...")
             tileAlphaEarth(
@@ -135,6 +165,33 @@ def main() :
             # if we are using AE and PCA
             if any("base-ae-" in item for item in channels) :
                 target_dims = utils.get_pca_dims(channels)
+        
+                print('\n' + '='*60)
+                print(f'FITTING PCA MODEL FOR SITES: {sites}')
+                print(f'Dimensions: {target_dims}')
+                print('='*60)
+                
+                # Fit PCA on all sites combined
+                pca_models = fit_pca_model(
+                    sites=sites,
+                    project_parent=project_parent,
+                    target_dims=target_dims,
+                    sample_size_per_site=100000,
+                    chunk_size=1000
+                )
+                
+                # Apply PCA transformation to each site's data
+                print('\nApplying PCA transformation to each site...')
+                for site in sites:
+                    apply_pca_to_site(
+                        site=site,
+                        project_parent=project_parent,
+                        pca_models_dict=pca_models,
+                        chunk_size=1000
+                    )
+                
+                ordered_name = utils.order_sites(sites)
+                print(f'\nPCA processing complete. Models saved to: prepTrainInputs/pca_models/{ordered_name}/')
 
                 # iterate through each listed dimension specified in target_dims
                 for n_components in target_dims :
