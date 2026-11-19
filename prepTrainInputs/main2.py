@@ -146,11 +146,15 @@ def main() :
                 # Expected: Source: 64 bands, int8, WxH, (10.0, 10.0)
 
 
-            # PSEUDO CODE ENTRY POINT
-            # call a function from utils.py
-            # this function will read the source raster file given by 'source_raster'
-            # the function will get the average, meadian, and std deviation (or some metric of spread)
-            # of the 64-channel aef embeddings, saved as probably a csv
+            # Compute per-band AlphaEarth statistics for later site comparison.
+            # The CSV is kept alongside the source raster and generated tiles.
+            aef_statistics_path = os.path.join(ae_tiles_path, 'aef_statistics.csv')
+            print(f'Computing AlphaEarth statistics for {source_raster}')
+            utils.compute_aef_statistics(
+                source_raster_path=str(source_raster),
+                output_csv_path=aef_statistics_path,
+            )
+            print(f'Saved AlphaEarth statistics to {aef_statistics_path}')
 
 
             # tile out non-PCA AlpahEarth

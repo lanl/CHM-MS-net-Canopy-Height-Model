@@ -51,6 +51,8 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
     from site_config import load_site_config
+    from prepTrainInputs.utils import quantize_float32_to_int8
+    from prepTrainInputs.utils import dequantize_int8_to_float32
 finally:
     sys.path.pop(0)
 
@@ -75,66 +77,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
-
-
-# ────────────────────────────────────────────────────────────────────
-# Utility Functions: De-quantization and Re-quantization
-# ────────────────────────────────────────────────────────────────────
-
-def dequantize_int8_to_float32(data_int8: np.ndarray) -> np.ndarray:
-    """
-    De-quantize int8 AE embeddings to float32 in [-1, 1] range.
-    
-    This reverses Google's quantization: int8 = sign(x) * sqrt(|x|) * 127.5
-    Formula from ms_net/pore_utils_2D.py line 680.
-    
-    Args:
-        data_int8: Array of int8 values, shape (bands, height, width) or (bands, n_pixels)
-        
-    Returns:
-        Array of float32 values in [-1, 1] range, same shape as input
-        
-    Example:
-        >>> int8_data = np.array([64, -32, 0], dtype='int8')
-        >>> float_data = dequantize_int8_to_float32(int8_data)
-        >>> # Returns approximately [0.252, -0.063, 0.0]
-    """
-    # Cast to float32 for computation
-    data_float = data_int8.astype(np.float32)
-    
-    # De-quantize: ((x / 127.5) ** 2) * sign(x)
-    # From ms_net/pore_utils_2D.py line 680
-    dequantized = ((data_float / 127.5) ** 2) * np.sign(data_float)
-    
-    return dequantized
-
-
-# FIXME: not really needed
-def quantize_float32_to_int8(data_float32: np.ndarray) -> np.ndarray:
-    """
-    Quantize float32 embeddings in [-1, 1] to int8 for storage.
-    
-    This applies Google's quantization: int8 = sign(x) * sqrt(|x|) * 127.5
-    Formula from prepTrainInputs/rasterAE.py line 204.
-    
-    Args:
-        data_float32: Array of float32 values in [-1, 1], shape (bands, height, width)
-        
-    Returns:
-        Array of int8 values, same shape as input
-        
-    Example:
-        >>> float_data = np.array([0.25, -0.0625, 0.0], dtype='float32')
-        >>> int8_data = quantize_float32_to_int8(float_data)
-        >>> # Returns approximately [63, -32, 0]
-    """
-    # Quantize: sign(x) * sqrt(|x|) * 127.5
-    # From rasterAE.py line 204
-    quantized = np.round(
-        np.sign(data_float32) * np.sqrt(np.abs(data_float32)) * 127.5
-    ).astype('int8')
-    
-    return quantized
 
 
 # ────────────────────────────────────────────────────────────────────

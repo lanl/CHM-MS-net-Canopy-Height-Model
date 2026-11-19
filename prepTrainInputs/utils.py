@@ -3312,3 +3312,139 @@ def getWvimgYear(metadataPath) :
     date_str = first_tile['date']  # Format: 'YYYY-MM-DD'
     year = float(date_str.split('-')[0])
     return year
+
+
+# ────────────────────────────────────────────────────────────────────
+# Utility Functions: De-quantization and Re-quantization
+# ────────────────────────────────────────────────────────────────────
+
+def dequantize_int8_to_float32(data_int8: np.ndarray) -> np.ndarray:
+    """
+    De-quantize int8 AE embeddings to float32 in [-1, 1] range.
+    
+    This reverses Google's quantization: int8 = sign(x) * sqrt(|x|) * 127.5
+    Formula from ms_net/pore_utils_2D.py line 680.
+    
+    Args:
+        data_int8: Array of int8 values, shape (bands, height, width) or (bands, n_pixels)
+        
+    Returns:
+        Array of float32 values in [-1, 1] range, same shape as input
+        
+    Example:
+        >>> int8_data = np.array([64, -32, 0], dtype='int8')
+        >>> float_data = dequantize_int8_to_float32(int8_data)
+        >>> # Returns approximately [0.252, -0.063, 0.0]
+    """
+    # Cast to float32 for computation
+    data_float = data_int8.astype(np.float32)
+    
+    # De-quantize: ((x / 127.5) ** 2) * sign(x)
+    # From ms_net/pore_utils_2D.py line 680
+    dequantized = ((data_float / 127.5) ** 2) * np.sign(data_float)
+    
+    return dequantized
+
+
+def quantize_float32_to_int8(data_float32: np.ndarray) -> np.ndarray:
+    """
+    Quantize float32 embeddings in [-1, 1] to int8 for storage.
+    
+    This applies Google's quantization: int8 = sign(x) * sqrt(|x|) * 127.5
+    Formula from prepTrainInputs/rasterAE.py line 204.
+    
+    Args:
+        data_float32: Array of float32 values in [-1, 1], shape (bands, height, width)
+        
+    Returns:
+        Array of int8 values, same shape as input
+        
+    Example:
+        >>> float_data = np.array([0.25, -0.0625, 0.0], dtype='float32')
+        >>> int8_data = quantize_float32_to_int8(float_data)
+        >>> # Returns approximately [63, -32, 0]
+    """
+    # Quantize: sign(x) * sqrt(|x|) * 127.5
+    # From rasterAE.py line 204
+    quantized = np.round(
+        np.sign(data_float32) * np.sqrt(np.abs(data_float32)) * 127.5
+    ).astype('int8')
+    
+    return quantized
+
+
+def compute_aef_statistics(
+    source_raster_path: str,
+    output_csv_path: str,
+) -> pd.DataFrame:
+    """Compute per-band statistics for a native AlphaEarth raster.
+
+    The source raster is expected to contain the 64 int8 AlphaEarth bands.
+    The ``-128`` value used by AlphaEarth as NoData is excluded before
+    dequantization.  Valid values are dequantized with
+    :func:`dequantize_int8_to_float32` and then represented as float16 before
+    calculating the statistics.
+
+    The output CSV deliberately contains only the requested columns:
+    ``AEF_INDEX``, ``AEF_MEAN``, ``AEF_MEDIAN``, and ``AEF_STD``.
+
+    Args:
+        source_raster_path: Path to the native 64-band AlphaEarth raster.
+        output_csv_path: Path at which to write the statistics CSV.
+
+    Returns:
+        A DataFrame containing one row for each AlphaEarth band (A00-A63).
+
+    Raises:
+        FileNotFoundError: If ``source_raster_path`` does not exist.
+        ValueError: If the raster does not contain 64 int8 bands.
+    """
+    if not os.path.isfile(source_raster_path):
+        raise FileNotFoundError(f"Source AlphaEarth raster not found: {source_raster_path}")
+
+    nodata_value = -128
+    statistics = []
+
+    with rasterio.open(source_raster_path) as src:
+        if src.count != 64:
+            raise ValueError(
+                f"Expected 64 AlphaEarth bands in {source_raster_path}; found {src.count}"
+            )
+        if any(dtype != "int8" for dtype in src.dtypes):
+            raise ValueError(
+                f"Expected int8 AlphaEarth bands in {source_raster_path}; "
+                f"found {src.dtypes}"
+            )
+
+        for band_number in range(1, 65):
+            band_int8 = src.read(band_number)
+            valid_mask = (band_int8 != nodata_value) & np.isfinite(band_int8)
+
+            # Keep the dequantized representation at the requested precision.
+            band_float16 = dequantize_int8_to_float32(band_int8).astype(np.float16)
+            valid_values = band_float16[valid_mask]
+            valid_values = valid_values[np.isfinite(valid_values)]
+
+            if valid_values.size == 0:
+                mean_value = median_value = std_value = np.nan
+            else:
+                # Use float32 for reductions so float16 input does not cause
+                # unnecessary overflow/rounding in the accumulations.
+                mean_value = float(np.mean(valid_values, dtype=np.float32))
+                median_value = float(np.median(valid_values))
+                std_value = float(np.std(valid_values, dtype=np.float32))
+
+            statistics.append({
+                "AEF_INDEX": f"A{band_number - 1:02d}",
+                "AEF_MEAN": mean_value,
+                "AEF_MEDIAN": median_value,
+                "AEF_STD": std_value,
+            })
+
+    statistics_df = pd.DataFrame(
+        statistics,
+        columns=["AEF_INDEX", "AEF_MEAN", "AEF_MEDIAN", "AEF_STD"],
+    )
+    os.makedirs(os.path.dirname(os.path.abspath(output_csv_path)), exist_ok=True)
+    statistics_df.to_csv(output_csv_path, index=False)
+    return statistics_df
